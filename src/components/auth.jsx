@@ -1,13 +1,14 @@
 import {
     createUserWithEmailAndPassword,
     GoogleAuthProvider,
-    onAuthStateChanged,
     signInWithEmailAndPassword,
     signInWithPopup,
     signOut
 } from "firebase/auth";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { auth } from "../config.js";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useNavigate } from "react-router-dom";
 import '../styles/auth.scss';
 
 const GoogleIcon = () => (
@@ -31,22 +32,21 @@ const errorMap = {
 };
 
 export const Auth = () => {
+    const { user } = useAuth();
+    const navigate = useNavigate();
     const [mode, setMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [user, setUser] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    useEffect(() => { const u = onAuthStateChanged(auth, setUser); return u; }, []);
-
     const clear = () => { setEmail(''); setPassword(''); setError(''); };
 
-    const handleEmailAuth = async () => {
+    const handleEmailAuth = async (action) => {
         if (!email || !password) { setError('Please fill in all fields.'); return; }
         setLoading(true); setError('');
         try {
-            mode === 'signup'
+            action === 'signup'
                 ? await createUserWithEmailAndPassword(auth, email, password)
                 : await signInWithEmailAndPassword(auth, email, password);
             clear();
@@ -64,8 +64,8 @@ export const Auth = () => {
         <div className="auth">
             {/* Header */}
             <div className="auth__header">
-                <span className="auth__logo">🔥</span>
-                <span className="auth__brand-name">Firebase Auth</span>
+                <span className="auth__logo">📡</span>
+                <span className="auth__brand-name">Chat App</span>
             </div>
 
             <div className="auth__body">
@@ -81,23 +81,12 @@ export const Auth = () => {
                         <div className="auth__profile-name">{user.displayName || 'User'}</div>
                         <div className="auth__profile-email">{user.email}</div>
                         <div className="auth__signed-badge">● Signed in</div>
+                        <button className="auth__signout" onClick={() => navigate('/profile')} style={{ background: '#e0e0e0', color: '#333', marginBottom: '8px' }}>Edit Profile</button>
                         <button className="auth__signout" onClick={() => signOut(auth)}>Sign Out</button>
                     </div>
                 ) : (
                     /* ── Sign-in form ── */
                     <div className="auth__form">
-                        <div className="auth__tabs">
-                            {['login', 'signup'].map(m => (
-                                <button
-                                    key={m}
-                                    className={`auth__tab${mode === m ? ' auth__tab--active' : ''}`}
-                                    onClick={() => { setMode(m); clear(); }}
-                                >
-                                    {m === 'login' ? 'Sign In' : 'Sign Up'}
-                                </button>
-                            ))}
-                        </div>
-
                         <div className="auth__field">
                             <label className="auth__label">Email</label>
                             <input
@@ -106,7 +95,6 @@ export const Auth = () => {
                                 placeholder="you@example.com"
                                 value={email}
                                 onChange={e => setEmail(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
                             />
                         </div>
                         <div className="auth__field">
@@ -117,15 +105,19 @@ export const Auth = () => {
                                 placeholder="••••••••"
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
                             />
                         </div>
 
                         {error && <div className="auth__error">{error}</div>}
 
-                        <button className="auth__submit" onClick={handleEmailAuth} disabled={loading}>
-                            {loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
-                        </button>
+                        <div className="auth__actions" style={{ display: 'flex', gap: '8px' }}>
+                            <button className="auth__submit" onClick={() => handleEmailAuth('login')} disabled={loading}>
+                                {loading ? 'Wait…' : 'Sign In'}
+                            </button>
+                            <button className="auth__submit auth__submit--signup" style={{ background: '#eee', color: '#333' }} onClick={() => handleEmailAuth('signup')} disabled={loading}>
+                                {loading ? 'Wait…' : 'Sign Up'}
+                            </button>
+                        </div>
 
                         <div className="auth__divider">
                             <div className="auth__divider-line" />
