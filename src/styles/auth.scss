@@ -1,3 +1,4 @@
+@use "sass:color";
 @import "./variables.scss";
 
 $primary-color: #0b57d0;
@@ -102,7 +103,7 @@ $radius-lg: 16px;
     transition: background 0.2s;
     
     &:hover:not(:disabled) {
-      background-color: darken($primary-color, 10%); /* NOTE: Dart Sass warn, but valid */
+      background-color: color.adjust($primary-color, $lightness: -10%);
     }
     
     &--signup {

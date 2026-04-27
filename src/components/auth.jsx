@@ -95,6 +95,7 @@ export const Auth = () => {
                                 placeholder="you@example.com"
                                 value={email}
                                 onChange={e => setEmail(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleEmailAuth('login')}
                             />
                         </div>
                         <div className="auth__field">
@@ -105,6 +106,7 @@ export const Auth = () => {
                                 placeholder="••••••••"
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleEmailAuth('login')}
                             />
                         </div>
 
