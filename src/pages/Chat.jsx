@@ -1,11 +1,13 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect,useMemo, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { db, storage } from "../config.js";
-import { ref, onValue, push, set, serverTimestamp, get, update, remove } from "firebase/database";
+import { ref, onValue, push, set, serverTimestamp, get, update, remove, query, limitToLast } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../config.js";
+import { MUTED_CHATS_KEY } from "../constants/storageKeys.js";
+import { filterMessagesByQuery, getChatAvatarFallback, getMessagePreview, getUserDisplayName } from "../utils/chatUtils.js";
 import "../styles/chat.scss";
 
 function Chat() {
@@ -22,7 +24,6 @@ function Chat() {
     
     const [searchQuery, setSearchQuery] = useState("");
     const [editingMessageId, setEditingMessageId] = useState(null);
-    const [editMessageText, setEditMessageText] = useState("");
     const [readReceipts, setReadReceipts] = useState({});
 
     const [showSettings, setShowSettings] = useState(false);
@@ -30,6 +31,8 @@ function Chat() {
     const [showAddMember, setShowAddMember] = useState(false);
     const [newChatName, setNewChatName] = useState("");
     const [mutedChats, setMutedChats] = useState({});
+    const [isEditingNicknames, setIsEditingNicknames] = useState(false);
+    const [nicknameDrafts, setNicknameDrafts] = useState({});
     
     const [pinnedMessages, setPinnedMessages] = useState([]);
     const [showAllPinned, setShowAllPinned] = useState(false);
@@ -39,18 +42,166 @@ function Chat() {
     
     const [replyingTo, setReplyingTo] = useState(null);
     const [lastReadMsgId, setLastReadMsgId] = useState(null);
+    const [lastVisibleMessageId, setLastVisibleMessageId] = useState(null);
+    const [lastReadResolved, setLastReadResolved] = useState(false);
+    const [currentUserProfile, setCurrentUserProfile] = useState({ displayName: "", photoURL: "" });
+    const [notificationPermission, setNotificationPermission] = useState(
+        typeof Notification !== "undefined" ? Notification.permission : "default"
+    );
+    const [isUpdatingChatIcon, setIsUpdatingChatIcon] = useState(false);
 
     const messagesEndRef = useRef(null);
-    const previousMessagesLength = useRef(0);
+    const messagesContainerRef = useRef(null);
+    const composerInputRef = useRef(null);
+    const chatIconUploadRef = useRef(null);
+    const mutedChatsRef = useRef({});
+    const lastNotifiedMessageByChatRef = useRef({});
+    const notificationInitializedByChatRef = useRef({});
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const [isChatReady, setIsChatReady] = useState(false);
+    const pinnedMessageIdSet = useMemo(() => new Set(pinnedMessages.map((pm) => pm.id)), [pinnedMessages]);
     
+    const requestNotificationPermission = async () => {
+        if (!("Notification" in window)) {
+            return "denied";
+        }
+
+        const permission = await Notification.requestPermission();
+        setNotificationPermission(permission);
+        return permission;
+    };
+
     // Request notification permission
     useEffect(() => {
-        if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-            Notification.requestPermission();
+        if ("Notification" in window) {
+            setNotificationPermission(Notification.permission);
+            if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+                requestNotificationPermission();
+            }
         }
     }, []);
+
+    useEffect(() => {
+        const storedMuted = localStorage.getItem(MUTED_CHATS_KEY);
+        if (!storedMuted) return;
+        try {
+            setMutedChats(JSON.parse(storedMuted));
+        } catch {
+            setMutedChats({});
+        }
+    }, []);
+
+    useEffect(() => {
+        mutedChatsRef.current = mutedChats;
+    }, [mutedChats]);
+
+    useEffect(() => {
+        if (!user) return;
+        const meRef = ref(db, `users/${user.uid}`);
+        const unsubscribe = onValue(meRef, (snapshot) => {
+            if (!snapshot.exists()) {
+                return;
+            }
+            const me = snapshot.val();
+            setCurrentUserProfile({
+                displayName: me.displayName || "",
+                photoURL: me.photoURL || ""
+            });
+        });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    useEffect(() => {
+        if (!selectedChat?.id) return;
+
+        const metadataRef = ref(db, `chats/${selectedChat.id}/metadata`);
+        const unsubscribe = onValue(metadataRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+
+            const metadata = snapshot.val();
+            setSelectedChat((prev) => (prev?.id === selectedChat.id ? { ...prev, ...metadata } : prev));
+            setUserChats((prev) => prev.map((chat) => (chat.id === selectedChat.id ? { ...chat, ...metadata } : chat)));
+        });
+
+        return () => unsubscribe();
+    }, [selectedChat?.id]);
+
+    useEffect(() => {
+        setIsEditingNicknames(false);
+        setNicknameDrafts({});
+    }, [selectedChat?.id]);
+
+    const sendBrowserNotification = (title, body, icon) => {
+        if (!("Notification" in window)) return;
+
+        if (Notification.permission === "granted") {
+            new Notification(title, { body, icon });
+            return;
+        }
+
+        if (Notification.permission !== "denied") {
+            Notification.requestPermission().then((permission) => {
+                if (permission === "granted") {
+                    new Notification(title, { body, icon });
+                }
+            });
+        }
+    };
+
+    useEffect(() => {
+        if (!user?.uid || userChats.length === 0) return;
+
+        const unsubscribes = userChats.map((chat) => {
+            const lastMessageQuery = query(ref(db, `chats/${chat.id}/messages`), limitToLast(1));
+
+            return onValue(lastMessageQuery, async (snapshot) => {
+                if (!snapshot.exists()) {
+                    notificationInitializedByChatRef.current[chat.id] = true;
+                    return;
+                }
+
+                let latestMessage = null;
+                snapshot.forEach((child) => {
+                    latestMessage = { id: child.key, ...child.val() };
+                });
+                if (!latestMessage) return;
+
+                if (!notificationInitializedByChatRef.current[chat.id]) {
+                    notificationInitializedByChatRef.current[chat.id] = true;
+                    lastNotifiedMessageByChatRef.current[chat.id] = latestMessage.id;
+                    return;
+                }
+
+                const previousMessageId = lastNotifiedMessageByChatRef.current[chat.id];
+                if (previousMessageId === latestMessage.id) {
+                    return;
+                }
+
+                lastNotifiedMessageByChatRef.current[chat.id] = latestMessage.id;
+
+                if (latestMessage.senderId === user.uid) return;
+                if (document.hasFocus() && !document.hidden) return;
+                if (mutedChatsRef.current[chat.id]) return;
+
+                const senderSnapshot = await get(ref(db, `users/${latestMessage.senderId}`));
+                const senderInfo = senderSnapshot.exists() ? senderSnapshot.val() : null;
+
+                const nickname = chat?.nicknames?.[latestMessage.senderId];
+                const senderName = nickname?.trim() || getUserDisplayName(senderInfo);
+
+                sendBrowserNotification(
+                    `New message in ${chat.name || "Chat"}`,
+                    `${senderName}: ${getMessagePreview(latestMessage)}`,
+                    senderInfo?.photoURL || chat.iconUrl || "/react.svg"
+                );
+            });
+        });
+
+        return () => {
+            unsubscribes.forEach((unsubscribe) => unsubscribe());
+        };
+    }, [user?.uid, userChats]);
 
     // Load user's chats
     useEffect(() => {
@@ -94,12 +245,15 @@ function Chat() {
         if (!selectedChat) {
             setMessages([]);
             setPinnedMessages([]);
-            previousMessagesLength.current = 0;
             setIsChatReady(false);
             return;
         }
         
+        // 【關鍵修正 1】：切換聊天室時，同步清空舊訊息與狀態，防止 useLayoutEffect 提早觸發
         setIsChatReady(false);
+        setMessages([]); 
+        setLastReadMsgId(null);
+        setIsInitialLoad(true);
         
         const messagesRef = ref(db, `chats/${selectedChat.id}/messages`);
         const receiptsRef = ref(db, `chats/${selectedChat.id}/readReceipts`);
@@ -108,9 +262,7 @@ function Chat() {
         let unsubscribeMsgs = () => {};
         
         const initChat = async () => {
-            setIsInitialLoad(true);
-            previousMessagesLength.current = 0;
-
+            // (這裡不用再寫 setIsInitialLoad(true) 了，上面已經同步設定)
             let myLastReadId = null;
             const snap = await get(receiptsRef);
             if (snap.exists() && snap.val()[user.uid]) {
@@ -136,35 +288,10 @@ function Chat() {
                     });
 
                     const resolvedMsgs = await Promise.all(messagePromises);
-                    
-                    if (resolvedMsgs.length > previousMessagesLength.current) {
-                        const newMsgs = resolvedMsgs.slice(previousMessagesLength.current);
-                        newMsgs.forEach(m => {
-                            if (m.senderId !== user.uid && !document.hasFocus() && !mutedChats[selectedChat.id]) {
-                                if (Notification.permission === "granted") {
-                                    new Notification(`New message from ${m.senderInfo?.displayName || 'User'}`, {
-                                        body: m.text || "Sent an image",
-                                        icon: m.senderInfo?.photoURL || '/react.svg'
-                                    });
-                                } else if (Notification.permission !== "denied") {
-                                    Notification.requestPermission().then(permission => {
-                                        if (permission === 'granted') {
-                                            new Notification(`New message from ${m.senderInfo?.displayName || 'User'}`, {
-                                                body: m.text || "Sent an image",
-                                                icon: m.senderInfo?.photoURL || '/react.svg'
-                                            });
-                                        }
-                                    });
-                                }
-                            }
-                        });
-                    }
-                    
-                    previousMessagesLength.current = resolvedMsgs.length;
+
                     setMessages(resolvedMsgs);
                 } else {
                     setMessages([]);
-                    previousMessagesLength.current = 0;
                     setIsChatReady(true);
                 }
             });
@@ -192,53 +319,103 @@ function Chat() {
             unsubscribeReceipts();
             unsubscribePinned();
         };
-    }, [selectedChat, user.uid, mutedChats]);
+    }, [selectedChat, user.uid]);
 
-    // Handle scroll and delayed read receipts
-    useEffect(() => {
-        if (messages.length === 0 || !selectedChat) return;
+    // Handle initial scroll positioning
+    useLayoutEffect(() => {
+        // 加入 !messagesContainerRef.current 防呆，確保 DOM 已經準備好
+        if (messages.length === 0 || !selectedChat || !messagesContainerRef.current) return;
 
         if (isInitialLoad) {
-            setTimeout(() => {
-                if (lastReadMsgId) {
-                    const lastReadIdx = messages.findIndex(m => m.id === lastReadMsgId);
-                    if (lastReadIdx !== -1 && lastReadIdx + 1 < messages.length) {
-                        const targetId = messages[lastReadIdx + 1].id;
-                        const elem = document.getElementById(`msg-${targetId}`);
-                        if (elem) {
-                            elem.scrollIntoView({ block: "center" });
-                        } else {
-                            messagesEndRef.current?.scrollIntoView();
-                        }
-                    } else {
-                        messagesEndRef.current?.scrollIntoView();
-                    }
-                } else {
-                    messagesEndRef.current?.scrollIntoView();
+            let targetNode = null;
+            
+            if (lastReadMsgId) {
+                const lastReadIdx = messages.findIndex(m => m.id === lastReadMsgId);
+                // 尋找最後已讀的「下一則」訊息
+                if (lastReadIdx !== -1 && lastReadIdx + 1 < messages.length) {
+                    const targetId = messages[lastReadIdx + 1].id;
+                    targetNode = document.getElementById(`msg-${targetId}`);
                 }
-                setIsInitialLoad(false);
-                setIsChatReady(true);
-            }, 0);
+            }
+
+            if (targetNode) {
+                // 定位到未讀訊息
+                targetNode.scrollIntoView({ block: "center" });
+            } else {
+                // 【關鍵修正 2】：若沒有未讀訊息，改用 scrollTop 直接強制滾動到底部，比 scrollIntoView 更可靠
+                messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+            }
+            
+            setIsInitialLoad(false);
+            setIsChatReady(true);
         } else {
-            if (messages[messages.length - 1].senderId === user.uid) {
+            // 處理後續的新訊息滾動
+            if (messages[messages.length - 1]?.senderId === user.uid) {
                 scrollToBottom();
             } else if (!isChatReady) {
                setIsChatReady(true);
             }
         }
+    }, [messages, isInitialLoad, lastReadMsgId, selectedChat, user.uid]);
 
-        // Delayed update read receipt
-        const timer = setTimeout(() => {
-            if (document.hasFocus()) {
-                const lastMsgId = messages[messages.length - 1].id;
-                update(ref(db, `chats/${selectedChat.id}/readReceipts`), {
-                    [user.uid]: lastMsgId
+    // Observe message visibility and track the latest message visible in viewport.
+    useEffect(() => {
+        if (!selectedChat || messages.length === 0 || !messagesContainerRef.current) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                let latestVisible = null;
+
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting || entry.intersectionRatio < 0.55) return;
+
+                    const msgId = entry.target.getAttribute("data-msg-id");
+                    if (!msgId) return;
+
+                    const index = messages.findIndex((m) => m.id === msgId);
+                    if (index === -1) return;
+
+                    if (!latestVisible || index > latestVisible.index) {
+                        latestVisible = { id: msgId, index };
+                    }
                 });
+
+                if (latestVisible?.id) {
+                    setLastVisibleMessageId(latestVisible.id);
+                }
+            },
+            {
+                root: messagesContainerRef.current,
+                threshold: [0.25, 0.55, 0.8]
             }
-        }, 1500);
+        );
+
+        messages.forEach((msg) => {
+            const node = document.getElementById(`msg-${msg.id}`);
+            if (node) {
+                observer.observe(node);
+            }
+        });
+
+        return () => observer.disconnect();
+    }, [messages, selectedChat]);
+
+    // Mark read when message is actually visible to the reader.
+    useEffect(() => {
+        if (!selectedChat || !lastVisibleMessageId) return;
+
+        const visibleIdx = messages.findIndex((m) => m.id === lastVisibleMessageId);
+        const currentReadIdx = messages.findIndex((m) => m.id === readReceipts?.[user.uid]);
+        if (visibleIdx === -1 || (currentReadIdx !== -1 && visibleIdx <= currentReadIdx)) return;
+
+        const timer = setTimeout(() => {
+            update(ref(db, `chats/${selectedChat.id}/readReceipts`), {
+                [user.uid]: lastVisibleMessageId
+            });
+        }, 450);
 
         return () => clearTimeout(timer);
-    }, [messages, isInitialLoad, lastReadMsgId, selectedChat, user.uid]);
+    }, [selectedChat, user.uid, lastVisibleMessageId, messages, readReceipts]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
@@ -248,8 +425,24 @@ function Chat() {
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
-        if (!newMessage.trim() && !imageFile) return;
         if (!selectedChat) return;
+
+        if (editingMessageId) {
+            if (!newMessage.trim()) return;
+
+            await update(ref(db, `chats/${selectedChat.id}/messages/${editingMessageId}`), {
+                text: newMessage.trim(),
+                isEdited: true,
+                editedAt: serverTimestamp()
+            });
+
+            setEditingMessageId(null);
+            setNewMessage("");
+            if (composerInputRef.current) composerInputRef.current.style.height = 'auto';
+            return;
+        }
+
+        if (!newMessage.trim() && !imageFile) return;
 
         const messagesRef = ref(db, `chats/${selectedChat.id}/messages`);
         const newMsgRef = push(messagesRef);
@@ -281,7 +474,7 @@ function Chat() {
         if (replyingTo) {
             msgData.replyToId = replyingTo.id;
             msgData.replyToText = replyingTo.text || "Image";
-            msgData.replyToSender = replyingTo.senderInfo?.displayName || replyingTo.senderInfo?.email || "User";
+            msgData.replyToSender = getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo);
         }
 
         await set(newMsgRef, msgData);
@@ -293,7 +486,7 @@ function Chat() {
 
     const handleReplyClick = (msg) => {
         setReplyingTo(msg);
-        document.querySelector('.chat-room__input-form input[type="text"]')?.focus();
+        composerInputRef.current?.focus();
     };
 
     const scrollToMessage = (msgId) => {
@@ -314,22 +507,15 @@ function Chat() {
 
     const handleEditClick = (msg) => {
         setEditingMessageId(msg.id);
-        setEditMessageText(msg.text || "");
-    };
-
-    const handleSaveEdit = async () => {
-        if (!editMessageText.trim()) return;
-        await update(ref(db, `chats/${selectedChat.id}/messages/${editingMessageId}`), {
-            text: editMessageText,
-            isEdited: true
-        });
-        setEditingMessageId(null);
-        setEditMessageText("");
+        setReplyingTo(null);
+        setImageFile(null);
+        setNewMessage(msg.text || "");
+        setTimeout(() => composerInputRef.current?.focus(), 0);
     };
 
     const handleCancelEdit = () => {
         setEditingMessageId(null);
-        setEditMessageText("");
+        setNewMessage("");
     };
 
     const handlePinMessage = async (msg) => {
@@ -361,6 +547,7 @@ function Chat() {
             metadata: {
                 name: chatName,
                 members: chatMembers,
+                nicknames: {},
                 createdAt: serverTimestamp()
             }
         });
@@ -383,12 +570,150 @@ function Chat() {
         );
     };
 
+    const renderChatIcon = (chat, size, className) => {
+        if (chat?.iconUrl) {
+            return <img src={chat.iconUrl} alt={chat.name || "Chat icon"} className={className} style={{ width: size, height: size }} />;
+        }
+
+        return (
+            <div className={className} style={{ width: size, height: size }}>
+                {getChatAvatarFallback(chat)}
+            </div>
+        );
+    };
+
+    const applyChatMetadataLocally = (chatId, changes) => {
+        setSelectedChat((prev) => (prev?.id === chatId ? { ...prev, ...changes } : prev));
+        setUserChats((prev) => prev.map((chat) => (chat.id === chatId ? { ...chat, ...changes } : chat)));
+    };
+
+    const getMemberInfo = (uid) => {
+        if (uid === user?.uid) {
+            return {
+                uid,
+                displayName: currentUserProfile.displayName || user?.email || "User",
+                photoURL: currentUserProfile.photoURL || "",
+                email: user?.email || ""
+            };
+        }
+
+        return allUsers.find((u) => u.uid === uid) || { uid, displayName: "User", photoURL: "" };
+    };
+
+    const getChatDisplayName = (uid, userInfo) => {
+        const nickname = selectedChat?.nicknames?.[uid];
+        if (nickname && nickname.trim()) return nickname.trim();
+        return getUserDisplayName(userInfo);
+    };
+
+    const startEditNicknames = () => {
+        if (!selectedChat) return;
+        const memberIds = Object.keys(selectedChat.members || {});
+        const drafts = {};
+        memberIds.forEach((uid) => {
+            drafts[uid] = selectedChat.nicknames?.[uid] || "";
+        });
+        setNicknameDrafts(drafts);
+        setIsEditingNicknames(true);
+    };
+
+    const cancelEditNicknames = () => {
+        setIsEditingNicknames(false);
+        setNicknameDrafts({});
+    };
+
+    const saveNicknames = async () => {
+        if (!selectedChat) return;
+        const memberIds = Object.keys(selectedChat.members || {});
+        const updates = {};
+
+        memberIds.forEach((uid) => {
+            const value = (nicknameDrafts[uid] || "").trim();
+            updates[`chats/${selectedChat.id}/metadata/nicknames/${uid}`] = value || null;
+        });
+
+        await update(ref(db), updates);
+        setIsEditingNicknames(false);
+    };
+
+    const handleRenameChat = async () => {
+        if (!selectedChat || !newChatName.trim()) return;
+
+        const updatedName = newChatName.trim();
+        await update(ref(db, `chats/${selectedChat.id}/metadata`), { name: updatedName });
+        applyChatMetadataLocally(selectedChat.id, { name: updatedName });
+        setNewChatName("");
+    };
+
+    const handleChangeChatIcon = async () => {
+        if (!selectedChat) return;
+        chatIconUploadRef.current?.click();
+    };
+
+    const toggleChatMute = () => {
+        if (!selectedChat) return;
+
+        const newMuted = { ...mutedChats, [selectedChat.id]: !mutedChats[selectedChat.id] };
+        setMutedChats(newMuted);
+        localStorage.setItem(MUTED_CHATS_KEY, JSON.stringify(newMuted));
+    };
+
+    const handleComposerKeyDown = (e) => {
+        if (e.key !== "Enter") return;
+
+        // Use modifier + Enter for manual line break; Enter alone submits.
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+            return;
+            msgData.replyToSender = getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo);
+        }
+
+        e.preventDefault();
+        e.currentTarget.form?.requestSubmit();
+    };
+
+    const handleInputResize = (e) => {
+        setNewMessage(e.target.value);
+        e.target.style.height = 'auto';
+        e.target.style.height = `${e.target.scrollHeight}px`;
+    };
+
+    const handleLogout = async () => {
+        await signOut(auth);
+    };
+
+    const handleChatIconUpload = async (e) => {
+        if (!selectedChat || !e.target.files?.[0]) return;
+
+        const file = e.target.files[0];
+        setIsUpdatingChatIcon(true);
+
+        try {
+            const imageRef = storageRef(storage, `chats/${selectedChat.id}/icon/${Date.now()}_${file.name}`);
+            await uploadBytes(imageRef, file);
+            const iconUrl = await getDownloadURL(imageRef);
+
+            await update(ref(db, `chats/${selectedChat.id}/metadata`), { iconUrl });
+            applyChatMetadataLocally(selectedChat.id, { iconUrl });
+        } catch (error) {
+            console.error("Failed to update chat icon", error);
+            alert("Failed to upload chat icon.");
+        } finally {
+            setIsUpdatingChatIcon(false);
+            e.target.value = "";
+        }
+    };
+
     return (
         <div className="chat-layout">
             <aside className="chat-sidebar">
                 <div className="chat-sidebar__header">
                     <h2>Chats</h2>
-                    <button className="chat-sidebar__new-btn" onClick={() => setShowNewChatModal(true)}>+</button>
+                    <button className="chat-sidebar__new-btn" onClick={() => setShowNewChatModal(true)}>
+                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
                 </div>
                 <div className="chat-sidebar__list">
                     {userChats.map(chat => (
@@ -398,7 +723,7 @@ function Chat() {
                             onClick={() => setSelectedChat(chat)}
                         >
                             <div className="chat-sidebar__item-avatar">
-                                {chat.name?.[0]?.toUpperCase() || '#'}
+                                {renderChatIcon(chat, 40, "chat-icon chat-icon--sidebar")}
                             </div>
                             <div className="chat-sidebar__item-info">
                                 <span className="chat-sidebar__item-name">{chat.name}</span>
@@ -408,8 +733,14 @@ function Chat() {
                     {userChats.length === 0 && <div className="chat-sidebar__empty">No chats yet</div>}
                 </div>
                 <div className="chat-sidebar__user">
-                    <button onClick={() => navigate('/profile')}>Profile</button>
-                    <button onClick={() => signOut(auth)}>Log Out</button>
+                    <button className="chat-sidebar__profile-icon" onClick={() => navigate('/profile')} aria-label="Open profile">
+                        {currentUserProfile.photoURL ? (
+                            <img src={currentUserProfile.photoURL} alt="Profile" />
+                        ) : (
+                            <span>{currentUserProfile.displayName ? currentUserProfile.displayName[0].toUpperCase() : "?"}</span>
+                        )}
+                    </button>
+                    <span className="chat-sidebar__username">{currentUserProfile.displayName || "User"}</span>
                 </div>
             </aside>
 
@@ -417,19 +748,15 @@ function Chat() {
                 {selectedChat ? (
                     <div className="chat-room">
                         <header className="chat-room__header">
-                            <div style={{display: 'flex', alignItems: 'center'}}>
-                                {selectedChat?.iconUrl ? (
-                                    <img src={selectedChat.iconUrl} alt="icon" style={{width: 32, height: 32, borderRadius: '50%', marginRight: 10}} />
-                                ) : (
-                                    <div style={{width: 32, height: 32, borderRadius: '50%', marginRight: 10, background: '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>#</div>
-                                )}
+                            <div className="chat-room__title-wrap" style={{display: 'flex', alignItems: 'center'}}>
+                                {renderChatIcon(selectedChat, 32, "chat-icon chat-icon--header")}
                                 <h3>{selectedChat.name}</h3>
                             </div>
                             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
                                 <button className="settings-btn" onClick={() => setShowSettings(!showSettings)} style={{fontSize: '1.2rem', cursor: 'pointer', background: 'none', border: 'none'}}>⚙️</button>
                             </div>
                         </header>
-                        <div className="chat-room__messages" style={{ position: 'relative', opacity: isChatReady ? 1 : 0, transition: 'opacity 0.2s ease-in' }}>
+                        <div ref={messagesContainerRef} className={`chat-room__messages ${editingMessageId ? "chat-room__messages--editing" : ""}`} style={{ position: 'relative', opacity: isChatReady ? 1 : 0, transition: 'opacity 0.2s ease-in' }}>
                             {pinnedMessages.length > 0 && (
                                 <div className="chat-room__pinned" style={{ position: 'sticky', top: 0, zIndex: 5, background: '#fef3c7', padding: '10px', borderRadius: '4px', marginBottom: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
@@ -445,7 +772,7 @@ function Chat() {
                                                     style={{ flex: 1, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                                                     onClick={() => scrollToMessage(pm.id)}
                                                 >
-                                                    <strong>{pm.senderInfo?.displayName || 'User'}: </strong> 
+                                                    <strong>{getChatDisplayName(pm.senderId, pm.senderInfo)}: </strong> 
                                                     {pm.text || '[Image]'}
                                                 </div>
                                                 <button onClick={() => handleUnpinMessage(pm.id)} style={{ border: 'none', background: 'transparent', color: '#d97706', cursor: 'pointer', fontSize: '0.8rem' }}>Unpin</button>
@@ -454,15 +781,22 @@ function Chat() {
                                     </div>
                                 </div>
                             )}
-                            {messages.filter(msg => msg.text?.toLowerCase().includes(searchQuery.toLowerCase())).map(msg => {
+                            {filterMessagesByQuery(messages, searchQuery).map(msg => {
                                 const isMe = msg.senderId === user.uid;
-                                const isEditing = editingMessageId === msg.id;
+                                const isEditingTarget = editingMessageId === msg.id;
+                                const isDimmed = Boolean(editingMessageId) && !isEditingTarget;
                                 const readers = Object.entries(readReceipts || {})
                                     .filter(([uid, msgId]) => msgId === msg.id && uid !== user.uid)
                                     .map(([uid]) => allUsers.find(u => u.uid === uid) || { uid, displayName: 'User', photoURL: null });
 
                                 return (
-                                    <div key={msg.id} id={`msg-${msg.id}`} style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div
+                                        key={msg.id}
+                                        id={`msg-${msg.id}`}
+                                        data-msg-id={msg.id}
+                                        className={`message-row ${isDimmed ? "message-row--dimmed" : ""} ${isEditingTarget ? "message-row--editing" : ""}`}
+                                        style={{ display: 'flex', flexDirection: 'column' }}
+                                    >
                                         <div className={`message ${isMe ? 'message--me' : 'message--other'}`}>
                                             {!isMe && (
                                                 <div className="message__avatar">
@@ -474,7 +808,7 @@ function Chat() {
                                                 </div>
                                             )}
                                             <div className="message__content">
-                                                {!isMe && <span className="message__sender">{msg.senderInfo?.displayName || msg.senderInfo?.email}</span>}
+                                                {!isMe && <span className="message__sender">{getChatDisplayName(msg.senderId, msg.senderInfo)}</span>}
                                                 
                                                 {/* Replied-to Box */}
                                                 {msg.replyToId && (
@@ -489,49 +823,33 @@ function Chat() {
                                                 )}
 
                                                 <div className="message__bubble">
-                                                    {isEditing ? (
-                                                        <div className="message__edit-form">
-                                                            <input 
-                                                                type="text" 
-                                                                value={editMessageText} 
-                                                                onChange={e => setEditMessageText(e.target.value)}
-                                                                autoFocus
-                                                            />
-                                                            <button onClick={handleSaveEdit}>Save</button>
-                                                            <button onClick={handleCancelEdit}>Cancel</button>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            {msg.imageUrl && (
-                                                                <img 
-                                                                    src={msg.imageUrl} 
-                                                                    alt="attached" 
-                                                                    className="message__image" 
-                                                                    onClick={() => setFullscreenImage(msg.imageUrl)}
-                                                                    style={{ cursor: 'pointer', maxWidth: '200px', maxHeight: '200px', objectFit: 'cover' }}
-                                                                />
-                                                            )}
-                                                            {msg.text && <p>{msg.text}</p>}
-                                                            {msg.isEdited && <small className="message__edited-tag">(edited)</small>}
-                                                        </>
+                                                    {msg.imageUrl && (
+                                                        <img 
+                                                            src={msg.imageUrl} 
+                                                            alt="attached" 
+                                                            className="message__image" 
+                                                            onClick={() => setFullscreenImage(msg.imageUrl)}
+                                                            style={{ cursor: 'pointer', maxWidth: '200px', maxHeight: '200px', objectFit: 'cover' }}
+                                                        />
                                                     )}
+                                                    {msg.text && <p>{msg.text}</p>}
+                                                    {msg.isEdited && <small className="message__edited-tag">(edited)</small>}
+                                                    {isEditingTarget && <small className="message__edited-tag">Editing in composer...</small>}
                                                 </div>
-                                                {isMe && !isEditing && (
+                                                {!editingMessageId && (
                                                     <div className="message__actions">
-                                                        <button onClick={() => handleEditClick(msg)}>Edit</button>
-                                                        <button onClick={() => handleDeleteMessage(msg.id)}>Unsend</button>
-                                                        <button onClick={() => handlePinMessage(msg)}>Pin</button>
-                                                    </div>
-                                                )}
-                                                {!isMe && !isEditing && (
-                                                    <div className="message__actions">
-                                                        <button onClick={() => handlePinMessage(msg)}>Pin</button>
-                                                    </div>
-                                                )}
-                                                {/* Allow anyone to reply */}
-                                                {!isEditing && (
-                                                    <div className="message__actions message__actions--reply" style={{ marginTop: '2px' }}>
-                                                        <button style={{ marginLeft: isMe ? 0 : '8px', color: '#666', border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px' }} onClick={() => handleReplyClick(msg)}>Reply</button>
+                                                        <button onClick={() => handleReplyClick(msg)}>Reply</button>
+                                                        {pinnedMessageIdSet.has(msg.id) ? (
+                                                            <button onClick={() => handleUnpinMessage(msg.id)}>Unpin</button>
+                                                        ) : (
+                                                            <button onClick={() => handlePinMessage(msg)}>Pin</button>
+                                                        )}
+                                                        {isMe && (
+                                                            <>
+                                                                <button onClick={() => handleEditClick(msg)}>Edit</button>
+                                                                <button onClick={() => handleDeleteMessage(msg.id)}>Unsend</button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -540,7 +858,7 @@ function Chat() {
                                         {readers.length > 0 && isMe && (
                                             <div className="message__read-receipts" style={{ alignSelf: 'flex-end', display: 'flex', gap: '3px', marginTop: '2px', marginRight: '10px' }}>
                                                 {readers.map(r => (
-                                                    <img key={r.uid} src={r.photoURL || `https://ui-avatars.com/api/?name=${r.displayName}&size=14&background=random`} alt={r.displayName} style={{ width: '14px', height: '14px', borderRadius: '50%' }} title={`Read by ${r.displayName}`} />
+                                                    <img key={r.uid} src={r.photoURL || `https://ui-avatars.com/api/?name=${r.displayName}&size=14&background=random`} alt={r.displayName} style={{ width: '14px', height: '14px', borderRadius: '50%' }} title={`Read by ${getChatDisplayName(r.uid, r)}`} />
                                                 ))}
                                             </div>
                                         )}
@@ -551,10 +869,21 @@ function Chat() {
                         </div>
                         
                         {/* Reply Preview */}
+                        {editingMessageId && (
+                            <div className="chat-room__reply-preview chat-room__reply-preview--editing" style={{ padding: '8px 12px', background: '#fff4f4', borderLeft: '4px solid #d93025', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ fontSize: '0.85rem', color: '#555' }}>
+                                    <strong style={{ display: 'block', color: '#333' }}>Editing message</strong>
+                                    <span>Press Enter or Send to save</span>
+                                </div>
+                                <button type="button" onClick={handleCancelEdit} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#888' }}>&times;</button>
+                            </div>
+                        )}
+
+                        {/* Reply Preview */}
                         {replyingTo && (
                             <div className="chat-room__reply-preview" style={{ padding: '8px 12px', background: '#f0f0f0', borderLeft: '4px solid #007bff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ fontSize: '0.85rem', color: '#555' }}>
-                                    <strong style={{ display: 'block', color: '#333' }}>Replying to {replyingTo.senderInfo?.displayName || replyingTo.senderInfo?.email || 'User'}</strong>
+                                    <strong style={{ display: 'block', color: '#333' }}>Replying to {getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo)}</strong>
                                     <span>{replyingTo.text || 'Image'}</span>
                                 </div>
                                 <button type="button" onClick={() => setReplyingTo(null)} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#888' }}>&times;</button>
@@ -562,28 +891,33 @@ function Chat() {
                         )}
 
                         <form className="chat-room__input-form" onSubmit={handleSendMessage}>
-                            <label className="chat-room__upload-btn" title="Send image">
-                                📎
-                                <input 
-                                    type="file" 
-                                    name="imageFile" 
-                                    accept="image/*" 
-                                    style={{ display: 'none' }} 
-                                    onChange={(e) => setImageFile(e.target.files[0])}
-                                />
-                            </label>
-                            {imageFile && (
+                            {!editingMessageId && (
+                                <label className="chat-room__upload-btn" title="Send image">
+                                    📎
+                                    <input 
+                                        type="file" 
+                                        name="imageFile" 
+                                        accept="image/*" 
+                                        style={{ display: 'none' }} 
+                                        onChange={(e) => setImageFile(e.target.files[0])}
+                                    />
+                                </label>
+                            )}
+                            {imageFile && !editingMessageId && (
                                 <div className="chat-room__image-preview" style={{ padding: '0 10px', color: 'blue', fontSize: '0.8rem' }}>
                                     {imageFile.name} (File attached) <button type="button" onClick={() => setImageFile(null)} style={{border:'none', background:'none', color:'red', cursor:'pointer'}}>&times;</button>
                                 </div>
                             )}
-                            <input 
-                                type="text" 
-                                placeholder="Type a message..." 
+                            <textarea
+                                ref={composerInputRef}
+                                className="chat-room__composer"
+                                placeholder={editingMessageId ? "Edit your message..." : "Type a message..."}
                                 value={newMessage} 
-                                onChange={e => setNewMessage(e.target.value)} 
+                                onChange={handleInputResize}
+                                onKeyDown={handleComposerKeyDown}
+                                rows={1}
                             />
-                            <button type="submit" disabled={!newMessage.trim() && !imageFile}>Send</button>
+                            <button type="submit" disabled={!newMessage.trim() && !imageFile}>{editingMessageId ? "Save" : "Send"}</button>
                         </form>
                     </div>
                 ) : (
@@ -598,18 +932,10 @@ function Chat() {
                     {settingsView === 'main' ? (
                         <>
                             <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #dadce0' }}>
-                                {selectedChat?.iconUrl ? (
-                                    <img src={selectedChat.iconUrl} alt="icon" style={{ width: 80, height: 80, borderRadius: '50%', marginBottom: 10, objectFit: 'cover' }} />
-                                ) : (
-                                    <div style={{ width: 80, height: 80, borderRadius: '50%', margin: '0 auto 10px', background: '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>#</div>
-                                )}
-                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all' }}>{selectedChat.name}</h3>
+                                {renderChatIcon(selectedChat, 80, "chat-icon chat-icon--settings")}
+                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all', color: '#202124' }}>{selectedChat.name}</h3>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
-                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#5f6368' }} onClick={() => {
-                                        const newMuted = { ...mutedChats, [selectedChat.id]: !mutedChats[selectedChat.id] };
-                                        setMutedChats(newMuted);
-                                        localStorage.setItem('mutedChats', JSON.stringify(newMuted));
-                                    }}>
+                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#202124' }} onClick={toggleChatMute}>
                                         <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#e8eaed', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 5 }}>
                                             {mutedChats[selectedChat.id] ? '🔕' : '🔔'}
                                         </div>
@@ -630,36 +956,92 @@ function Chat() {
 
                             <div style={{ flex: 1, overflowY: 'auto' }}>
                                 <details style={{ padding: '15px', borderBottom: '1px solid #eee' }} open>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Custom Chat</summary>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124' }}>Custom Chat</summary>
                                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{display: 'flex', gap: '5px'}}>
                                             <input type="text" placeholder="New Name" value={newChatName} onChange={e => setNewChatName(e.target.value)} style={{padding: '4px', flex: 1, minWidth: 0}}/>
-                                            <button onClick={() => { if(newChatName){ update(ref(db, `chats/${selectedChat.id}/metadata`), {name: newChatName}); setNewChatName(''); } }}>Rename</button>
+                                            <button onClick={handleRenameChat}>Rename</button>
                                         </div>
-                                        <button onClick={() => {
-                                            const url = prompt("Enter new icon URL:");
-                                            if (url) update(ref(db, `chats/${selectedChat.id}/metadata`), {iconUrl: url});
-                                        }} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>Change Icon</button>
-                                        <button onClick={() => alert('Editing nickname feature here')} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>Edit Nicknames</button>
+                                        <button onClick={handleChangeChatIcon} disabled={isUpdatingChatIcon} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', color: '#202124' }}>
+                                            {isUpdatingChatIcon ? "Uploading icon..." : "Change Icon"}
+                                        </button>
+                                        <input
+                                            ref={chatIconUploadRef}
+                                            type="file"
+                                            accept="image/*"
+                                            style={{ display: 'none' }}
+                                            onChange={handleChatIconUpload}
+                                        />
+                                        <button
+                                            onClick={startEditNicknames}
+                                            disabled={isEditingNicknames}
+                                            style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: isEditingNicknames ? 'not-allowed' : 'pointer' }}
+                                        >
+                                            {isEditingNicknames ? "Editing Nicknames..." : "Edit Nicknames"}
+                                        </button>
                                     </div>
                                 </details>
 
                                 <details style={{ padding: '15px', borderBottom: '1px solid #eee' }}>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Members</summary>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124' }}>Members</summary>
                                     <div style={{ marginTop: '10px' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '10px' }}>
+                                            {Object.keys(selectedChat.members || {}).map((uid) => {
+                                                const memberInfo = getMemberInfo(uid);
+                                                const displayName = getChatDisplayName(uid, memberInfo);
+                                                const baseName = getUserDisplayName(memberInfo);
+                                                const hasNickname = Boolean(selectedChat?.nicknames?.[uid]);
+
+                                                return (
+                                                    <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', background: '#e8eaed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: '#5f6368' }}>
+                                                            {memberInfo.photoURL ? (
+                                                                <img src={memberInfo.photoURL} alt={baseName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                            ) : (
+                                                                <span>{baseName[0]?.toUpperCase() || "?"}</span>
+                                                            )}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            {isEditingNicknames ? (
+                                                                <input
+                                                                    type="text"
+                                                                    value={nicknameDrafts[uid] ?? ""}
+                                                                    placeholder={baseName}
+                                                                    onChange={(e) => setNicknameDrafts((prev) => ({ ...prev, [uid]: e.target.value }))}
+                                                                    style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', border: '1px solid #dadce0', borderRadius: '6px' }}
+                                                                />
+                                                            ) : (
+                                                                <>
+                                                                    <div style={{ fontWeight: 600, color: '#202124', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
+                                                                    {hasNickname && displayName !== baseName && (
+                                                                        <small style={{ color: '#5f6368' }}>{baseName}</small>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        {isEditingNicknames && (
+                                            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                                <button onClick={cancelEditNicknames} style={{ flex: 1, padding: '8px', border: '1px solid #dadce0', borderRadius: '6px', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+                                                <button onClick={saveNicknames} style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '6px', background: '#0b57d0', color: '#fff', cursor: 'pointer' }}>Save</button>
+                                            </div>
+                                        )}
                                         <button onClick={() => setShowAddMember(true)} style={{ width: '100%', padding: '8px', background: '#e8eaed', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px' }}>+ Add member</button>
-                                        <small style={{ color: '#666' }}>{Object.keys(selectedChat.members || {}).length} members</small>
+                                        <small style={{ color: '#202124' }}>{Object.keys(selectedChat.members || {}).length} members</small>
                                     </div>
                                 </details>
 
                                 <details style={{ padding: '15px', borderBottom: '1px solid #eee' }}>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={(e) => { e.preventDefault(); setSettingsView('media'); }}>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={(e) => { e.preventDefault(); setSettingsView('media'); }}>
                                         <span>Media, Files & Links</span>
                                         <span>▶</span>
                                     </summary>
                                 </details>
 
-                                <div style={{ padding: '15px' }}>
+                                <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     <button style={{ color: 'red', width: '100%', padding: '10px', background: 'none', border: '1px solid currentColor', borderRadius: '4px', cursor: 'pointer', textAlign: 'left' }} onClick={() => {
                                         if(window.confirm("Leave this chat?")){
                                             remove(ref(db, `user_chats/${user.uid}/${selectedChat.id}`));

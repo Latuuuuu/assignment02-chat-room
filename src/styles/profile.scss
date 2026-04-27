@@ -1,4 +1,5 @@
-@import "./variables.scss";
+@use "sass:color";
+@use "./variables.scss" as *;
 
 $primary-color: #0b57d0;
 $bg-color: #f8f9fa;
@@ -56,6 +57,26 @@ html, body {
 
       &:hover {
         background: rgba($primary-color, 0.05);
+      }
+    }
+
+    .profile-page__header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .profile-page__logout {
+      border: 1px solid #f3c3bf;
+      background: #fce8e6;
+      color: #c5221f;
+      border-radius: $radius;
+      font-weight: 600;
+      padding: 8px 14px;
+      cursor: pointer;
+
+      &:hover {
+        background: #f9d8d4;
       }
     }
   }
@@ -276,7 +297,7 @@ html, body {
     flex-shrink: 0;
 
     &:hover:not(:disabled) {
-      background-color: darken($primary-color, 10%);
+      background: color.adjust(#0b57d0, $lightness: -10%);
     }
 
     &:active:not(:disabled) {

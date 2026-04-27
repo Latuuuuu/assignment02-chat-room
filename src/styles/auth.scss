@@ -1,5 +1,5 @@
 @use "sass:color";
-@import "./variables.scss";
+@use "./variables.scss" as *;
 
 $primary-color: #0b57d0;
 $bg-color: #f8f9fa;

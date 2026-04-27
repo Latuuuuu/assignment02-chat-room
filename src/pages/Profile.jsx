@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { Link } from "react-router-dom";
 import { auth, db, storage } from "../config";
-import { updateEmail } from "firebase/auth";
-import { ref, get, set, update } from "firebase/database";
+import { updateEmail, signOut } from "firebase/auth";
+import { ref, get, update } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import "../styles/profile.scss";
 
@@ -94,13 +94,20 @@ function Profile() {
         setSaving(false);
     };
 
+    const handleLogout = async () => {
+        await signOut(auth);
+    };
+
     if (loading) return <div className="profile__loading">Loading profile...</div>;
 
     return (
         <div className="profile-page">
             <header className="profile-page__header">
                 <h2>User Profile</h2>
-                <Link to="/chat" className="profile-page__back">Back to Chat</Link>
+                <div className="profile-page__header-actions">
+                    <Link to="/chat" className="profile-page__back">Back to Chat</Link>
+                    <button type="button" className="profile-page__logout" onClick={handleLogout}>Log Out</button>
+                </div>
             </header>
             
             <div className="profile-page__content">
