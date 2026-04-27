@@ -41,9 +41,9 @@ function Chat() {
     const [lastReadMsgId, setLastReadMsgId] = useState(null);
 
     const messagesEndRef = useRef(null);
-    const messageListRef = useRef(null);
     const previousMessagesLength = useRef(0);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const [isChatReady, setIsChatReady] = useState(false);
     
     // Request notification permission
     useEffect(() => {
@@ -59,7 +59,6 @@ function Chat() {
         const unsubscribe = onValue(userChatsRef, async (snapshot) => {
             if (snapshot.exists()) {
                 const chatIds = Object.keys(snapshot.val());
-                // Fetch details for each chat
                 const chatDataPromises = chatIds.map(async (chatId) => {
                     const chatSnapshot = await get(ref(db, `chats/${chatId}/metadata`));
                     return { id: chatId, ...chatSnapshot.val() };
@@ -96,8 +95,12 @@ function Chat() {
             setMessages([]);
             setPinnedMessages([]);
             previousMessagesLength.current = 0;
+            setIsChatReady(false);
             return;
         }
+        
+        setIsChatReady(false);
+        
         const messagesRef = ref(db, `chats/${selectedChat.id}/messages`);
         const receiptsRef = ref(db, `chats/${selectedChat.id}/readReceipts`);
         const pinnedRef = ref(db, `chats/${selectedChat.id}/pinnedMessages`);
@@ -137,7 +140,7 @@ function Chat() {
                     if (resolvedMsgs.length > previousMessagesLength.current) {
                         const newMsgs = resolvedMsgs.slice(previousMessagesLength.current);
                         newMsgs.forEach(m => {
-                            if (m.senderId !== user.uid && document.hidden && !mutedChats[selectedChat.id]) {
+                            if (m.senderId !== user.uid && !document.hasFocus() && !mutedChats[selectedChat.id]) {
                                 if (Notification.permission === "granted") {
                                     new Notification(`New message from ${m.senderInfo?.displayName || 'User'}`, {
                                         body: m.text || "Sent an image",
@@ -162,6 +165,7 @@ function Chat() {
                 } else {
                     setMessages([]);
                     previousMessagesLength.current = 0;
+                    setIsChatReady(true);
                 }
             });
         };
@@ -201,21 +205,25 @@ function Chat() {
                     if (lastReadIdx !== -1 && lastReadIdx + 1 < messages.length) {
                         const targetId = messages[lastReadIdx + 1].id;
                         const elem = document.getElementById(`msg-${targetId}`);
-                        if (elem) elem.scrollIntoView({ behavior: "smooth", block: "center" });
-                        else scrollToBottom();
+                        if (elem) {
+                            elem.scrollIntoView({ block: "center" });
+                        } else {
+                            messagesEndRef.current?.scrollIntoView();
+                        }
                     } else {
-                        scrollToBottom();
+                        messagesEndRef.current?.scrollIntoView();
                     }
                 } else {
-                    scrollToBottom();
+                    messagesEndRef.current?.scrollIntoView();
                 }
                 setIsInitialLoad(false);
-            }, 300);
+                setIsChatReady(true);
+            }, 0);
         } else {
-            // Not initial load, just scroll to bottom for new messages
-            // Actually, we should only scroll if we were already near bottom, but let's keep it simple
             if (messages[messages.length - 1].senderId === user.uid) {
                 scrollToBottom();
+            } else if (!isChatReady) {
+               setIsChatReady(true);
             }
         }
 
@@ -227,7 +235,7 @@ function Chat() {
                     [user.uid]: lastMsgId
                 });
             }
-        }, 1500); // 1.5 seconds delay
+        }, 1500);
 
         return () => clearTimeout(timer);
     }, [messages, isInitialLoad, lastReadMsgId, selectedChat, user.uid]);
@@ -421,7 +429,7 @@ function Chat() {
                                 <button className="settings-btn" onClick={() => setShowSettings(!showSettings)} style={{fontSize: '1.2rem', cursor: 'pointer', background: 'none', border: 'none'}}>⚙️</button>
                             </div>
                         </header>
-                        <div className="chat-room__messages" style={{ position: 'relative' }}>
+                        <div className="chat-room__messages" style={{ position: 'relative', opacity: isChatReady ? 1 : 0, transition: 'opacity 0.2s ease-in' }}>
                             {pinnedMessages.length > 0 && (
                                 <div className="chat-room__pinned" style={{ position: 'sticky', top: 0, zIndex: 5, background: '#fef3c7', padding: '10px', borderRadius: '4px', marginBottom: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
@@ -586,7 +594,7 @@ function Chat() {
             </main>
 
             {showSettings && selectedChat && (
-                <aside className="chat-right-sidebar" style={{ width: '320px', background: 'white', borderLeft: '1px solid #dadce0', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                <aside className="chat-settings-panel">
                     {settingsView === 'main' ? (
                         <>
                             <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #dadce0' }}>
@@ -631,8 +639,8 @@ function Chat() {
                                         <button onClick={() => {
                                             const url = prompt("Enter new icon URL:");
                                             if (url) update(ref(db, `chats/${selectedChat.id}/metadata`), {iconUrl: url});
-                                        }} style={{ textAlign: 'left', padding: '8px', background: '#f8f9fa', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Change Icon</button>
-                                        <button onClick={() => alert('Editing nickname feature here')} style={{ textAlign: 'left', padding: '8px', background: '#f8f9fa', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Edit Nicknames</button>
+                                        }} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>Change Icon</button>
+                                        <button onClick={() => alert('Editing nickname feature here')} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>Edit Nicknames</button>
                                     </div>
                                 </details>
 
@@ -640,7 +648,6 @@ function Chat() {
                                     <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Members</summary>
                                     <div style={{ marginTop: '10px' }}>
                                         <button onClick={() => setShowAddMember(true)} style={{ width: '100%', padding: '8px', background: '#e8eaed', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px' }}>+ Add member</button>
-                                        {/* Member list simplified */}
                                         <small style={{ color: '#666' }}>{Object.keys(selectedChat.members || {}).length} members</small>
                                     </div>
                                 </details>
