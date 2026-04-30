@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { auth, db, storage } from "../config";
 import { updateEmail, signOut } from "firebase/auth";
 import { ref, get, update } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import "../styles/chat.scss"; // For chat-layout and main-nav
 import "../styles/profile.scss";
 
 function Profile() {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [profile, setProfile] = useState({
         displayName: "",
         email: "",
@@ -101,14 +103,34 @@ function Profile() {
     if (loading) return <div className="profile__loading">Loading profile...</div>;
 
     return (
-        <div className="profile-page">
-            <header className="profile-page__header">
-                <h2>User Profile</h2>
-                <div className="profile-page__header-actions">
-                    <Link to="/chat" className="profile-page__back">Back to Chat</Link>
-                    <button type="button" className="profile-page__logout" onClick={handleLogout}>Log Out</button>
+        <div className="chat-layout">
+            <nav className="main-nav">
+                <div className="main-nav__top">
+                    <button className="nav-icon" onClick={() => navigate('/chat')} title="Chats">
+                        💬
+                    </button>
+                    <button className="nav-icon" onClick={() => navigate('/chat', { state: { view: 'friends' }})} title="Friends">
+                        👥
+                    </button>
                 </div>
-            </header>
+                <div className="main-nav__bottom">
+                    <button className="nav-icon profile-icon active" title="Profile">
+                        {profile.photoURL ? (
+                            <img src={profile.photoURL} alt="Profile" />
+                        ) : (
+                            <span>{profile.displayName ? profile.displayName[0].toUpperCase() : "?"}</span>
+                        )}
+                    </button>
+                </div>
+            </nav>
+
+            <div className="profile-page" style={{ flex: 1, width: 'auto' }}>
+                <header className="profile-page__header">
+                    <h2>User Profile</h2>
+                    <div className="profile-page__header-actions">
+                        <button type="button" className="profile-page__logout" onClick={handleLogout}>Log Out</button>
+                    </div>
+                </header>
             
             <div className="profile-page__content">
                 <div className="profile-card">
@@ -162,6 +184,7 @@ function Profile() {
                     </form>
                 </div>
             </div>
+        </div>
         </div>
     );
 }

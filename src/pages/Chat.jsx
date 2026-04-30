@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { db, storage } from "../config.js";
 import { ref, onValue, push, set, serverTimestamp, get, update, remove, query, limitToLast } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../config.js";
 import { MUTED_CHATS_KEY } from "../constants/storageKeys.js";
@@ -13,6 +13,7 @@ import "../styles/chat.scss";
 function Chat() {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const [userChats, setUserChats] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
@@ -21,7 +22,22 @@ function Chat() {
     const [allUsers, setAllUsers] = useState([]);
     const [showNewChatModal, setShowNewChatModal] = useState(false);
     const [selectedUsers, setSelectedUsers] = useState([]);
+    const [newGroupName, setNewGroupName] = useState("");
     
+    // Check if we came from another page with a specific view
+    const [activeView, setActiveView] = useState(location.state?.view || "chats"); // 'chats' | 'friends'
+    const [friends, setFriends] = useState({});
+    const [friendSearchQuery, setFriendSearchQuery] = useState("");
+    const [addFriendEmail, setAddFriendEmail] = useState("");
+    
+    useEffect(() => {
+        if (location.state?.view) {
+            setActiveView(location.state.view);
+            // Clear the state so refreshing doesn't keep forcing it if user switched locally
+            window.history.replaceState({}, document.title);
+        }
+    }, [location]);
+
     const [searchQuery, setSearchQuery] = useState("");
     const [editingMessageId, setEditingMessageId] = useState(null);
     const [readReceipts, setReadReceipts] = useState({});
@@ -31,8 +47,10 @@ function Chat() {
     const [showAddMember, setShowAddMember] = useState(false);
     const [newChatName, setNewChatName] = useState("");
     const [mutedChats, setMutedChats] = useState({});
-    const [isEditingNicknames, setIsEditingNicknames] = useState(false);
-    const [nicknameDrafts, setNicknameDrafts] = useState({});
+    
+    // For single-member nickname editing
+    const [editingNicknameUid, setEditingNicknameUid] = useState(null);
+    const [singleNicknameDraft, setSingleNicknameDraft] = useState("");
     
     const [pinnedMessages, setPinnedMessages] = useState([]);
     const [showAllPinned, setShowAllPinned] = useState(false);
@@ -45,9 +63,21 @@ function Chat() {
     const [lastVisibleMessageId, setLastVisibleMessageId] = useState(null);
     const [lastReadResolved, setLastReadResolved] = useState(false);
     const [currentUserProfile, setCurrentUserProfile] = useState({ displayName: "", photoURL: "" });
-    const [notificationPermission, setNotificationPermission] = useState(
-        typeof Notification !== "undefined" ? Notification.permission : "default"
-    );
+    
+    const [notificationPermission, setNotificationPermission] = useState("default");
+    useEffect(() => {
+        try {
+            if (typeof window !== "undefined" && "Notification" in window) {
+                setNotificationPermission(Notification.permission);
+                if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+                    requestNotificationPermission();
+                }
+            }
+        } catch (error) {
+            console.warn("Notification API 的讀取錯誤", error);
+        }
+    }, []);
+
     const [isUpdatingChatIcon, setIsUpdatingChatIcon] = useState(false);
 
     const messagesEndRef = useRef(null);
@@ -82,11 +112,13 @@ function Chat() {
     }, []);
 
     useEffect(() => {
-        const storedMuted = localStorage.getItem(MUTED_CHATS_KEY);
-        if (!storedMuted) return;
         try {
-            setMutedChats(JSON.parse(storedMuted));
-        } catch {
+            const storedMuted = localStorage.getItem(MUTED_CHATS_KEY);
+            if (storedMuted) {
+                setMutedChats(JSON.parse(storedMuted));
+            }
+        }catch (e) {
+            console.error("Failed to load muted chats from localStorage", e);
             setMutedChats({});
         }
     }, []);
@@ -128,8 +160,8 @@ function Chat() {
     }, [selectedChat?.id]);
 
     useEffect(() => {
-        setIsEditingNicknames(false);
-        setNicknameDrafts({});
+        setEditingNicknameUid(null);
+        setSingleNicknameDraft("");
     }, [selectedChat?.id]);
 
     const sendBrowserNotification = (title, body, icon) => {
@@ -238,6 +270,20 @@ function Chat() {
                 setAllUsers(usersData);
             }
         }, { onlyOnce: true });
+    }, [user]);
+
+    // Load friends
+    useEffect(() => {
+        if (!user) return;
+        const friendsRef = ref(db, `friends/${user.uid}`);
+        const unsubscribe = onValue(friendsRef, (snapshot) => {
+            if (snapshot.exists()) {
+                setFriends(snapshot.val());
+            } else {
+                setFriends({});
+            }
+        });
+        return () => unsubscribe();
     }, [user]);
 
     // Listen to selected chat messages
@@ -361,6 +407,8 @@ function Chat() {
     // Observe message visibility and track the latest message visible in viewport.
     useEffect(() => {
         if (!selectedChat || messages.length === 0 || !messagesContainerRef.current) return;
+
+        // if (!("IntersectionObserver" in window)) return;
 
         const observer = new IntersectionObserver(
             (entries) => {
@@ -531,8 +579,100 @@ function Chat() {
         await remove(ref(db, `chats/${selectedChat.id}/pinnedMessages/${msgId}`));
     };
 
+    const openDirectChat = async (targetUid) => {
+        // Check if direct chat already exists
+        const existingChat = userChats.find(chat => {
+            const members = Object.keys(chat.members || {});
+            return members.length === 2 && members.includes(user.uid) && members.includes(targetUid);
+        });
+
+        if (existingChat) {
+            setSelectedChat(existingChat);
+            setActiveView("chats");
+            return;
+        }
+
+        // Create new direct chat
+        const chatMembers = { [user.uid]: true, [targetUid]: true };
+        const chatsRef = ref(db, `chats`);
+        const newChatRef = push(chatsRef);
+        
+        const targetUser = allUsers.find(u => u.uid === targetUid);
+        const chatName = targetUser ? getUserDisplayName(targetUser) : "Direct Chat";
+
+        await set(newChatRef, {
+            metadata: {
+                name: chatName,
+                members: chatMembers,
+                nicknames: {},
+                createdAt: serverTimestamp(),
+                isDirect: true
+            }
+        });
+
+        const updates = {
+            [`user_chats/${user.uid}/${newChatRef.key}`]: true,
+            [`user_chats/${targetUid}/${newChatRef.key}`]: true
+        };
+        await update(ref(db), updates);
+
+        setSelectedChat({ id: newChatRef.key, name: chatName, members: chatMembers });
+        setActiveView("chats");
+    };
+
+    const handleAddFriend = async () => {
+        if (!addFriendEmail.trim()) return;
+        const targetUser = allUsers.find(u => u.email === addFriendEmail.trim());
+        if (!targetUser) {
+            alert("User not found!");
+            return;
+        }
+        if (targetUser.uid === user.uid) {
+            alert("Cannot add yourself!");
+            return;
+        }
+        if (friends[targetUser.uid]) {
+            alert("Already friends!");
+            return;
+        }
+        
+        const updates = {
+            [`friends/${user.uid}/${targetUser.uid}`]: true,
+            [`friends/${targetUser.uid}/${user.uid}`]: true
+        };
+        await update(ref(db), updates);
+        setAddFriendEmail("");
+        alert("Friend added!");
+    };
+
+    const handleDeleteFriend = async (friendUid, friendName) => {
+        if (!window.confirm(`Are you sure you want to delete ${friendName} from your friends list?`)) return;
+        
+        try {
+            const updates = {
+                [`friends/${user.uid}/${friendUid}`]: null,
+                [`friends/${friendUid}/${user.uid}`]: null
+            };
+            await update(ref(db), updates);
+            
+            // Also option to remove direct chat if preferred? No the request only says "delete friend". We'll just remove them from friends node.
+            alert("Friend removed.");
+        } catch (error) {
+            console.error("Error removing friend:", error);
+            alert("Failed to remove friend.");
+        }
+    };
+
     const handleCreateChat = async () => {
         if (selectedUsers.length === 0) return;
+
+        if (selectedUsers.length === 1) {
+            await openDirectChat(selectedUsers[0]);
+            setShowNewChatModal(false);
+            setSelectedUsers([]);
+            setNewGroupName("");
+            return;
+        }
 
         const chatMembers = { [user.uid]: true };
         selectedUsers.forEach(uid => { chatMembers[uid] = true; });
@@ -540,8 +680,8 @@ function Chat() {
         const chatsRef = ref(db, `chats`);
         const newChatRef = push(chatsRef);
         
-        const memberNames = allUsers.filter(u => selectedUsers.includes(u.uid)).map(u => u.displayName || u.email.split('@')[0]).join(', ');
-        const chatName = `Group with ${memberNames}`;
+        const memberNames = allUsers.filter(u => selectedUsers.includes(u.uid)).map(u => getUserDisplayName(u)).join('、');
+        const chatName = newGroupName.trim() || memberNames;
 
         await set(newChatRef, {
             metadata: {
@@ -606,34 +746,24 @@ function Chat() {
         return getUserDisplayName(userInfo);
     };
 
-    const startEditNicknames = () => {
-        if (!selectedChat) return;
-        const memberIds = Object.keys(selectedChat.members || {});
-        const drafts = {};
-        memberIds.forEach((uid) => {
-            drafts[uid] = selectedChat.nicknames?.[uid] || "";
-        });
-        setNicknameDrafts(drafts);
-        setIsEditingNicknames(true);
+    const startEditSingleNickname = (uid, currentNickname) => {
+        setEditingNicknameUid(uid);
+        setSingleNicknameDraft(currentNickname || "");
     };
 
-    const cancelEditNicknames = () => {
-        setIsEditingNicknames(false);
-        setNicknameDrafts({});
+    const cancelEditSingleNickname = () => {
+        setEditingNicknameUid(null);
+        setSingleNicknameDraft("");
     };
 
-    const saveNicknames = async () => {
+    const saveSingleNickname = async (uid) => {
         if (!selectedChat) return;
-        const memberIds = Object.keys(selectedChat.members || {});
+        const value = singleNicknameDraft.trim();
         const updates = {};
-
-        memberIds.forEach((uid) => {
-            const value = (nicknameDrafts[uid] || "").trim();
-            updates[`chats/${selectedChat.id}/metadata/nicknames/${uid}`] = value || null;
-        });
+        updates[`chats/${selectedChat.id}/metadata/nicknames/${uid}`] = value || null;
 
         await update(ref(db), updates);
-        setIsEditingNicknames(false);
+        setEditingNicknameUid(null);
     };
 
     const handleRenameChat = async () => {
@@ -657,6 +787,80 @@ function Chat() {
         setMutedChats(newMuted);
         localStorage.setItem(MUTED_CHATS_KEY, JSON.stringify(newMuted));
     };
+
+    // Keyboard Shortcuts
+    const handleNicknameKeyDown = (e, uid) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveSingleNickname(uid);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelEditSingleNickname();
+        }
+    };
+
+    const handleRenameKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleRenameChat();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setNewChatName("");
+        }
+    };
+
+    const handleAddFriendKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddFriend();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setAddFriendEmail("");
+        }
+    };
+
+    const handleCreateChatKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (Object.keys(friends).length === 0) {
+                setShowNewChatModal(false);
+                setActiveView('friends');
+            } else {
+                handleCreateChat();
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setShowNewChatModal(false);
+            setNewGroupName("");
+            setSelectedUsers([]);
+        }
+    };
+
+    // Add a global listener for the modal so Esc/Enter works anywhere while it's open, 
+    // without needing focus on the input specifically, but input events will bubble up.
+    useEffect(() => {
+        const handleGlobalKeyDown = (e) => {
+            if (!showNewChatModal) return;
+            // Ignore if active element is already handling it
+            if (e.target.tagName === 'INPUT' && e.target.type === 'text') return; 
+
+            if (e.key === 'Escape') {
+                setShowNewChatModal(false);
+                setNewGroupName("");
+                setSelectedUsers([]);
+            } else if (e.key === 'Enter') {
+                if (Object.keys(friends).length === 0) {
+                    setShowNewChatModal(false);
+                    setActiveView('friends');
+                } else if (selectedUsers.length > 0) {
+                    handleCreateChat();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleGlobalKeyDown);
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    }, [showNewChatModal, friends, selectedUsers]);
 
     const handleComposerKeyDown = (e) => {
         if (e.key !== "Enter") return;
@@ -705,49 +909,61 @@ function Chat() {
 
     return (
         <div className="chat-layout">
-            <aside className="chat-sidebar">
-                <div className="chat-sidebar__header">
-                    <h2>Chats</h2>
-                    <button className="chat-sidebar__new-btn" onClick={() => setShowNewChatModal(true)}>
-                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
+            <nav className="main-nav">
+                <div className="main-nav__top">
+                    <button className={`nav-icon ${activeView === 'chats' ? 'active' : ''}`} onClick={() => setActiveView('chats')} title="Chats">
+                        💬
+                    </button>
+                    <button className={`nav-icon ${activeView === 'friends' ? 'active' : ''}`} onClick={() => setActiveView('friends')} title="Friends">
+                        👥
                     </button>
                 </div>
-                <div className="chat-sidebar__list">
-                    {userChats.map(chat => (
-                        <div 
-                            key={chat.id} 
-                            className={`chat-sidebar__item ${selectedChat?.id === chat.id ? 'active' : ''}`}
-                            onClick={() => setSelectedChat(chat)}
-                        >
-                            <div className="chat-sidebar__item-avatar">
-                                {renderChatIcon(chat, 40, "chat-icon chat-icon--sidebar")}
-                            </div>
-                            <div className="chat-sidebar__item-info">
-                                <span className="chat-sidebar__item-name">{chat.name}</span>
-                            </div>
-                        </div>
-                    ))}
-                    {userChats.length === 0 && <div className="chat-sidebar__empty">No chats yet</div>}
-                </div>
-                <div className="chat-sidebar__user">
-                    <button className="chat-sidebar__profile-icon" onClick={() => navigate('/profile')} aria-label="Open profile">
+                <div className="main-nav__bottom">
+                    <button className="nav-icon profile-icon" onClick={() => navigate('/profile')} title="Profile">
                         {currentUserProfile.photoURL ? (
                             <img src={currentUserProfile.photoURL} alt="Profile" />
                         ) : (
                             <span>{currentUserProfile.displayName ? currentUserProfile.displayName[0].toUpperCase() : "?"}</span>
                         )}
                     </button>
-                    <span className="chat-sidebar__username">{currentUserProfile.displayName || "User"}</span>
                 </div>
-            </aside>
+            </nav>
 
-            <main className="chat-main">
-                {selectedChat ? (
-                    <div className="chat-room">
-                        <header className="chat-room__header">
+            {activeView === 'chats' ? (
+                <>
+                    <aside className="chat-sidebar">
+                        <div className="chat-sidebar__header">
+                            <h2>Chats</h2>
+                            <button className="chat-sidebar__new-btn" onClick={() => setShowNewChatModal(true)}>
+                                <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="chat-sidebar__list">
+                            {userChats.map(chat => (
+                                <div 
+                                    key={chat.id} 
+                                    className={`chat-sidebar__item ${selectedChat?.id === chat.id ? 'active' : ''}`}
+                                    onClick={() => setSelectedChat(chat)}
+                                >
+                                    <div className="chat-sidebar__item-avatar">
+                                        {renderChatIcon(chat, 40, "chat-icon chat-icon--sidebar")}
+                                    </div>
+                                    <div className="chat-sidebar__item-info">
+                                        <span className="chat-sidebar__item-name">{chat.name}</span>
+                                    </div>
+                                </div>
+                            ))}
+                            {userChats.length === 0 && <div className="chat-sidebar__empty">No chats yet</div>}
+                        </div>
+                    </aside>
+
+                    <main className="chat-main">
+                        {selectedChat ? (
+                            <div className="chat-room">
+                                <header className="chat-room__header">
                             <div className="chat-room__title-wrap" style={{display: 'flex', alignItems: 'center'}}>
                                 {renderChatIcon(selectedChat, 32, "chat-icon chat-icon--header")}
                                 <h3>{selectedChat.name}</h3>
@@ -854,9 +1070,9 @@ function Chat() {
                                                 )}
                                             </div>
                                         </div>
-                                        {/* Reply Preview */}
-                                        {readers.length > 0 && isMe && (
-                                            <div className="message__read-receipts" style={{ alignSelf: 'flex-end', display: 'flex', gap: '3px', marginTop: '2px', marginRight: '10px' }}>
+                                        {/* Read Receipts Preview */}
+                                        {readers.length > 0 && (
+                                            <div className="message__read-receipts" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', display: 'flex', gap: '3px', marginTop: '2px', marginRight: isMe ? '10px' : '0', marginLeft: isMe ? '0' : '46px' }}>
                                                 {readers.map(r => (
                                                     <img key={r.uid} src={r.photoURL || `https://ui-avatars.com/api/?name=${r.displayName}&size=14&background=random`} alt={r.displayName} style={{ width: '14px', height: '14px', borderRadius: '50%' }} title={`Read by ${getChatDisplayName(r.uid, r)}`} />
                                                 ))}
@@ -867,7 +1083,7 @@ function Chat() {
                             })}
                             <div ref={messagesEndRef} />
                         </div>
-                        
+
                         {/* Reply Preview */}
                         {editingMessageId && (
                             <div className="chat-room__reply-preview chat-room__reply-preview--editing" style={{ padding: '8px 12px', background: '#fff4f4', borderLeft: '4px solid #d93025', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -959,7 +1175,7 @@ function Chat() {
                                     <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124' }}>Custom Chat</summary>
                                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{display: 'flex', gap: '5px'}}>
-                                            <input type="text" placeholder="New Name" value={newChatName} onChange={e => setNewChatName(e.target.value)} style={{padding: '4px', flex: 1, minWidth: 0}}/>
+                                            <input type="text" placeholder="New Name" value={newChatName} onChange={e => setNewChatName(e.target.value)} onKeyDown={handleRenameKeyDown} style={{padding: '4px', flex: 1, minWidth: 0}}/>
                                             <button onClick={handleRenameChat}>Rename</button>
                                         </div>
                                         <button onClick={handleChangeChatIcon} disabled={isUpdatingChatIcon} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', color: '#202124' }}>
@@ -972,13 +1188,6 @@ function Chat() {
                                             style={{ display: 'none' }}
                                             onChange={handleChatIconUpload}
                                         />
-                                        <button
-                                            onClick={startEditNicknames}
-                                            disabled={isEditingNicknames}
-                                            style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: isEditingNicknames ? 'not-allowed' : 'pointer' }}
-                                        >
-                                            {isEditingNicknames ? "Editing Nicknames..." : "Edit Nicknames"}
-                                        </button>
                                     </div>
                                 </details>
 
@@ -991,6 +1200,7 @@ function Chat() {
                                                 const displayName = getChatDisplayName(uid, memberInfo);
                                                 const baseName = getUserDisplayName(memberInfo);
                                                 const hasNickname = Boolean(selectedChat?.nicknames?.[uid]);
+                                                const isEditingThis = editingNicknameUid === uid;
 
                                                 return (
                                                     <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1001,21 +1211,35 @@ function Chat() {
                                                                 <span>{baseName[0]?.toUpperCase() || "?"}</span>
                                                             )}
                                                         </div>
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            {isEditingNicknames ? (
-                                                                <input
-                                                                    type="text"
-                                                                    value={nicknameDrafts[uid] ?? ""}
-                                                                    placeholder={baseName}
-                                                                    onChange={(e) => setNicknameDrafts((prev) => ({ ...prev, [uid]: e.target.value }))}
-                                                                    style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', border: '1px solid #dadce0', borderRadius: '6px' }}
-                                                                />
+                                                        <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            {isEditingThis ? (
+                                                                <div style={{ display: 'flex', gap: '5px', width: '100%' }}>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={singleNicknameDraft}
+                                                                        placeholder={baseName}
+                                                                        onChange={(e) => setSingleNicknameDraft(e.target.value)}
+                                                                        onKeyDown={(e) => handleNicknameKeyDown(e, uid)}
+                                                                        autoFocus
+                                                                        style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '4px 6px', border: '1px solid #dadce0', borderRadius: '4px' }}
+                                                                    />
+                                                                    <button onClick={() => saveSingleNickname(uid)} style={{ border: 'none', background: '#0b57d0', color: 'white', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>✓</button>
+                                                                    <button onClick={cancelEditSingleNickname} style={{ border: '1px solid #dadce0', background: 'white', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>✕</button>
+                                                                </div>
                                                             ) : (
                                                                 <>
-                                                                    <div style={{ fontWeight: 600, color: '#202124', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
-                                                                    {hasNickname && displayName !== baseName && (
-                                                                        <small style={{ color: '#5f6368' }}>{baseName}</small>
-                                                                    )}
+                                                                    <div style={{ minWidth: 0 }}>
+                                                                        <div style={{ fontWeight: 600, color: '#202124', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
+                                                                        {hasNickname && displayName !== baseName && (
+                                                                            <small style={{ color: '#5f6368' }}>{baseName}</small>
+                                                                        )}
+                                                                    </div>
+                                                                    <button 
+                                                                        onClick={() => startEditSingleNickname(uid, selectedChat?.nicknames?.[uid])}
+                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: '#0b57d0', padding: '4px', flexShrink: 0 }}
+                                                                    >
+                                                                        Edit
+                                                                    </button>
                                                                 </>
                                                             )}
                                                         </div>
@@ -1023,12 +1247,6 @@ function Chat() {
                                                 );
                                             })}
                                         </div>
-                                        {isEditingNicknames && (
-                                            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                                                <button onClick={cancelEditNicknames} style={{ flex: 1, padding: '8px', border: '1px solid #dadce0', borderRadius: '6px', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-                                                <button onClick={saveNicknames} style={{ flex: 1, padding: '8px', border: 'none', borderRadius: '6px', background: '#0b57d0', color: '#fff', cursor: 'pointer' }}>Save</button>
-                                            </div>
-                                        )}
                                         <button onClick={() => setShowAddMember(true)} style={{ width: '100%', padding: '8px', background: '#e8eaed', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px' }}>+ Add member</button>
                                         <small style={{ color: '#202124' }}>{Object.keys(selectedChat.members || {}).length} members</small>
                                     </div>
@@ -1073,21 +1291,48 @@ function Chat() {
                 <div className="modal-overlay">
                     <div className="modal">
                         <h3>Create New Chat</h3>
+                        {selectedUsers.length > 1 && (
+                            <input 
+                                type="text" 
+                                placeholder="Group Name (Optional)" 
+                                value={newGroupName} 
+                                onChange={e => setNewGroupName(e.target.value)} 
+                                onKeyDown={handleCreateChatKeyDown}
+                                style={{ width: '100%', marginBottom: '10px', padding: '8px', boxSizing: 'border-box' }}
+                            />
+                        )}
                         <div className="modal__user-list">
-                            {allUsers.map(u => (
-                                <label key={u.uid} className="modal__user-item">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedUsers.includes(u.uid)} 
-                                        onChange={() => toggleUserSelection(u.uid)} 
-                                    />
-                                    {u.displayName || u.email}
-                                </label>
-                            ))}
+                            {Object.keys(friends).map(uid => {
+                                const u = allUsers.find(user => user.uid === uid);
+                                if (!u) return null;
+                                return (
+                                    <label key={u.uid} className="modal__user-item">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedUsers.includes(u.uid)} 
+                                            onChange={() => toggleUserSelection(u.uid)} 
+                                        />
+                                        {u.displayName || u.email}
+                                    </label>
+                                );
+                            })}
+                            {Object.keys(friends).length === 0 && (
+                                <div style={{padding: '20px 10px', color: '#666', textAlign: 'center'}}>
+                                    <p style={{margin: '0 0 15px 0'}}>No friends yet. Add some friends first!</p>
+                                    <button 
+                                        onClick={() => { setShowNewChatModal(false); setActiveView('friends'); }}
+                                        style={{ padding: '8px 16px', background: '#0b57d0', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    >
+                                        Go to Friends List
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         <div className="modal__actions">
-                            <button onClick={() => setShowNewChatModal(false)}>Cancel</button>
-                            <button className="primary" onClick={handleCreateChat} disabled={selectedUsers.length === 0}>Create</button>
+                            <button onClick={() => { setShowNewChatModal(false); setNewGroupName(""); setSelectedUsers([]); }}>Cancel</button>
+                            {Object.keys(friends).length > 0 && (
+                                <button className="primary" onClick={handleCreateChat} disabled={selectedUsers.length === 0}>Create</button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1098,16 +1343,21 @@ function Chat() {
                     <div className="modal" style={{background: 'white', padding: '20px', borderRadius: '8px', minWidth: '300px'}}>
                         <h3>Add Members</h3>
                         <div className="modal__user-list" style={{maxHeight: '200px', overflowY: 'auto', marginBottom: '15px'}}>
-                            {allUsers.filter(u => !(selectedChat?.members?.[u.uid])).map(u => (
-                                <label key={u.uid} className="modal__user-item" style={{display: 'flex', gap: '8px', padding: '4px 0'}}>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedUsers.includes(u.uid)} 
-                                        onChange={() => toggleUserSelection(u.uid)} 
-                                    />
-                                    {u.displayName || u.email}
-                                </label>
-                            ))}
+                            {Object.keys(friends).filter(uid => !(selectedChat?.members?.[uid])).map(uid => {
+                                const u = allUsers.find(user => user.uid === uid);
+                                if (!u) return null;
+                                return (
+                                    <label key={u.uid} className="modal__user-item" style={{display: 'flex', gap: '8px', padding: '4px 0'}}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedUsers.includes(u.uid)} 
+                                            onChange={() => toggleUserSelection(u.uid)} 
+                                        />
+                                        {u.displayName || u.email}
+                                    </label>
+                                );
+                            })}
+                            {Object.keys(friends).filter(uid => !(selectedChat?.members?.[uid])).length === 0 && <div style={{padding: '10px', color: '#666'}}>All friends are already in this chat.</div>}
                         </div>
                         <div className="modal__actions" style={{display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
                             <button onClick={() => { setShowAddMember(false); setSelectedUsers([]); }}>Cancel</button>
@@ -1127,6 +1377,88 @@ function Chat() {
                     </div>
                 </div>
             )}
+            </>
+            ) : null}
+            
+            {/* Friends View */}
+            {activeView === 'friends' && (
+                <main className="friends-view" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8f9fa', padding: '20px', overflowY: 'auto' }}>
+                    <div style={{ maxWidth: '600px', margin: '0 auto', width: '100%' }}>
+                        <h2 style={{ marginBottom: '20px', color: '#202124' }}>Friends</h2>
+                        
+                        <div className="card" style={{ background: '#fff', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '20px' }}>
+                            <h3 style={{ marginTop: 0, fontSize: '1rem', color: '#202124' }}>Add Friend</h3>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <input 
+                                    type="email" 
+                                    placeholder="Enter user email..." 
+                                    value={addFriendEmail}
+                                    onChange={e => setAddFriendEmail(e.target.value)}
+                                    onKeyDown={handleAddFriendKeyDown}
+                                    style={{ flex: 1, padding: '10px', border: '1px solid #dadce0', borderRadius: '4px' }}
+                                />
+                                <button onClick={handleAddFriend} style={{ padding: '10px 20px', background: '#0b57d0', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
+                            </div>
+                        </div>
+
+                        <div className="card" style={{ background: '#fff', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                <h3 style={{ margin: 0, fontSize: '1rem', color: '#202124' }}>My Friends ({Object.keys(friends).length})</h3>
+                                <input 
+                                    type="text" 
+                                    placeholder="Search friends..." 
+                                    value={friendSearchQuery}
+                                    onChange={e => setFriendSearchQuery(e.target.value)}
+                                    style={{ padding: '8px', border: '1px solid #dadce0', borderRadius: '4px' }}
+                                />
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {Object.keys(friends)
+                                    .map(uid => allUsers.find(u => u.uid === uid))
+                                    .filter(Boolean)
+                                    .filter(u => (u.displayName || u.email).toLowerCase().includes(friendSearchQuery.toLowerCase()))
+                                    .map(friend => {
+                                        // Calculate mutual chats
+                                        const mutualChatsCount = userChats.filter(chat => chat.members && chat.members[friend.uid] && !chat.isDirect).length;
+                                        
+                                        return (
+                                            <div key={friend.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid #f1f3f4', borderRadius: '8px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e8eaed', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5f6368', fontWeight: 600 }}>
+                                                        {friend.photoURL ? <img src={friend.photoURL} alt={friend.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (friend.displayName || friend.email)[0].toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ fontWeight: 500, color: '#202124' }}>{friend.displayName || friend.email}</div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#5f6368' }}>
+                                                            {mutualChatsCount > 0 ? `${mutualChatsCount} mutual group(s)` : 'No mutual groups'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button 
+                                                        onClick={() => openDirectChat(friend.uid)}
+                                                        style={{ padding: '8px 16px', background: '#e8f0fe', color: '#0b57d0', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
+                                                    >
+                                                        Chat
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteFriend(friend.uid, friend.displayName || friend.email)}
+                                                        style={{ padding: '8px 16px', background: '#ffebee', color: '#d93025', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                })}
+                                {Object.keys(friends).length === 0 && <div style={{ textAlign: 'center', color: '#5f6368', padding: '20px 0' }}>No friends added yet.</div>}
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            )}
+
             {/* Fullscreen Image Modal */}
             {fullScreenImage && (
                 <div 
