@@ -8,6 +8,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "../config.js";
 import { MUTED_CHATS_KEY } from "../constants/storageKeys.js";
 import { filterMessagesByQuery, getChatAvatarFallback, getMessagePreview, getUserDisplayName } from "../utils/chatUtils.js";
+import { GalleryIcon } from "../components/GalleryIcons.jsx";
 import "../styles/chat.scss";
 
 function Chat() {
@@ -712,11 +713,15 @@ function Chat() {
 
     const renderChatIcon = (chat, size, className) => {
         if (chat?.iconUrl) {
-            return <img src={chat.iconUrl} alt={chat.name || "Chat icon"} className={className} style={{ width: size, height: size }} />;
+            return (
+                <span className={`gallery-round-frame ${className}`} style={{ width: size, height: size }}>
+                    <img src={chat.iconUrl} alt={chat.name || "Chat icon"} />
+                </span>
+            );
         }
 
         return (
-            <div className={className} style={{ width: size, height: size }}>
+            <div className={`gallery-round-frame ${className}`} style={{ width: size, height: size }}>
                 {getChatAvatarFallback(chat)}
             </div>
         );
@@ -910,14 +915,14 @@ function Chat() {
     return (
         <div className="chat-layout">
             <nav className="main-nav">
-                <div className="main-nav__top">
-                    <button className={`nav-icon ${activeView === 'chats' ? 'active' : ''}`} onClick={() => setActiveView('chats')} title="Chats">
-                        💬
-                    </button>
-                    <button className={`nav-icon ${activeView === 'friends' ? 'active' : ''}`} onClick={() => setActiveView('friends')} title="Friends">
-                        👥
-                    </button>
-                </div>
+	                <div className="main-nav__top">
+	                    <button className={`nav-icon ${activeView === 'chats' ? 'active' : ''}`} onClick={() => setActiveView('chats')} title="Chats">
+	                        <GalleryIcon name="chat" size={22} title="Chats" />
+	                    </button>
+	                    <button className={`nav-icon ${activeView === 'friends' ? 'active' : ''}`} onClick={() => setActiveView('friends')} title="Friends">
+	                        <GalleryIcon name="friends" size={22} title="Friends" />
+	                    </button>
+	                </div>
                 <div className="main-nav__bottom">
                     <button className="nav-icon profile-icon" onClick={() => navigate('/profile')} title="Profile">
                         {currentUserProfile.photoURL ? (
@@ -969,21 +974,21 @@ function Chat() {
                                 <h3>{selectedChat.name}</h3>
                             </div>
                             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                <button className="settings-btn" onClick={() => setShowSettings(!showSettings)} style={{fontSize: '1.2rem', cursor: 'pointer', background: 'none', border: 'none'}}>⚙️</button>
+	                                <button className="settings-btn" onClick={() => setShowSettings(!showSettings)} style={{fontSize: '1.2rem', cursor: 'pointer', background: 'none', border: 'none'}} title="Conversation settings"><GalleryIcon name="settings" size={22} /></button>
                             </div>
                         </header>
                         <div ref={messagesContainerRef} className={`chat-room__messages ${editingMessageId ? "chat-room__messages--editing" : ""}`} style={{ position: 'relative', opacity: isChatReady ? 1 : 0, transition: 'opacity 0.2s ease-in' }}>
                             {pinnedMessages.length > 0 && (
-                                <div className="chat-room__pinned" style={{ position: 'sticky', top: 0, zIndex: 5, background: '#fef3c7', padding: '10px', borderRadius: '4px', marginBottom: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+	                                <div className="chat-room__pinned" style={{ position: 'sticky', top: 0, zIndex: 5, background: '#f2e2c8', padding: '10px', borderRadius: '4px', marginBottom: '10px', boxShadow: '0 2px 4px rgba(47,36,29,0.1)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                                        <strong style={{ color: '#b45309' }}>📌 Pinned Message(s)</strong>
-                                        <button onClick={() => setShowAllPinned(!showAllPinned)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem', color: '#b45309' }}>
-                                            {showAllPinned ? '▲' : '▼'}
+	                                        <strong className="gallery-inline-title"><GalleryIcon name="pin" size={16} /> Pinned Message(s)</strong>
+	                                        <button onClick={() => setShowAllPinned(!showAllPinned)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '1rem', color: '#7a3324' }}>
+	                                            <GalleryIcon name={showAllPinned ? "chevronUp" : "chevronDown"} size={18} />
                                         </button>
                                     </div>
                                     <div style={{ marginTop: '5px' }}>
                                         {(showAllPinned ? pinnedMessages : [pinnedMessages[0]]).map(pm => (
-                                            <div key={pm.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: showAllPinned ? '1px solid rgba(180, 83, 9, 0.2)' : 'none', paddingTop: showAllPinned ? '5px' : 0, marginTop: showAllPinned ? '5px' : 0 }}>
+	                                            <div key={pm.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: showAllPinned ? '1px solid rgba(184, 138, 80, 0.28)' : 'none', paddingTop: showAllPinned ? '5px' : 0, marginTop: showAllPinned ? '5px' : 0 }}>
                                                 <div 
                                                     style={{ flex: 1, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                                                     onClick={() => scrollToMessage(pm.id)}
@@ -991,7 +996,7 @@ function Chat() {
                                                     <strong>{getChatDisplayName(pm.senderId, pm.senderInfo)}: </strong> 
                                                     {pm.text || '[Image]'}
                                                 </div>
-                                                <button onClick={() => handleUnpinMessage(pm.id)} style={{ border: 'none', background: 'transparent', color: '#d97706', cursor: 'pointer', fontSize: '0.8rem' }}>Unpin</button>
+	                                                <button onClick={() => handleUnpinMessage(pm.id)} style={{ border: 'none', background: 'transparent', color: '#7a3324', cursor: 'pointer', fontSize: '0.8rem' }}>Unpin</button>
                                             </div>
                                         ))}
                                     </div>
@@ -1086,30 +1091,30 @@ function Chat() {
 
                         {/* Reply Preview */}
                         {editingMessageId && (
-                            <div className="chat-room__reply-preview chat-room__reply-preview--editing" style={{ padding: '8px 12px', background: '#fff4f4', borderLeft: '4px solid #d93025', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ fontSize: '0.85rem', color: '#555' }}>
-                                    <strong style={{ display: 'block', color: '#333' }}>Editing message</strong>
+	                            <div className="chat-room__reply-preview chat-room__reply-preview--editing" style={{ padding: '8px 12px', background: '#efe0c8', borderLeft: '4px solid #7a3324', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+	                                <div style={{ fontSize: '0.85rem', color: '#7a6a58' }}>
+	                                    <strong style={{ display: 'block', color: '#2f241d' }}>Editing message</strong>
                                     <span>Press Enter or Send to save</span>
                                 </div>
-                                <button type="button" onClick={handleCancelEdit} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#888' }}>&times;</button>
+	                                <button type="button" onClick={handleCancelEdit} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#7a6a58' }} title="Cancel edit"><GalleryIcon name="close" size={18} /></button>
                             </div>
                         )}
 
                         {/* Reply Preview */}
                         {replyingTo && (
-                            <div className="chat-room__reply-preview" style={{ padding: '8px 12px', background: '#f0f0f0', borderLeft: '4px solid #007bff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ fontSize: '0.85rem', color: '#555' }}>
-                                    <strong style={{ display: 'block', color: '#333' }}>Replying to {getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo)}</strong>
+	                            <div className="chat-room__reply-preview" style={{ padding: '8px 12px', background: '#efe0c8', borderLeft: '4px solid #7a3324', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+	                                <div style={{ fontSize: '0.85rem', color: '#7a6a58' }}>
+	                                    <strong style={{ display: 'block', color: '#2f241d' }}>Replying to {getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo)}</strong>
                                     <span>{replyingTo.text || 'Image'}</span>
                                 </div>
-                                <button type="button" onClick={() => setReplyingTo(null)} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#888' }}>&times;</button>
+	                                <button type="button" onClick={() => setReplyingTo(null)} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#7a6a58' }} title="Cancel reply"><GalleryIcon name="close" size={18} /></button>
                             </div>
                         )}
 
                         <form className="chat-room__input-form" onSubmit={handleSendMessage}>
                             {!editingMessageId && (
-                                <label className="chat-room__upload-btn" title="Send image">
-                                    📎
+	                                <label className="chat-room__upload-btn" title="Send image">
+	                                    <GalleryIcon name="attach" size={24} />
                                     <input 
                                         type="file" 
                                         name="imageFile" 
@@ -1120,8 +1125,8 @@ function Chat() {
                                 </label>
                             )}
                             {imageFile && !editingMessageId && (
-                                <div className="chat-room__image-preview" style={{ padding: '0 10px', color: 'blue', fontSize: '0.8rem' }}>
-                                    {imageFile.name} (File attached) <button type="button" onClick={() => setImageFile(null)} style={{border:'none', background:'none', color:'red', cursor:'pointer'}}>&times;</button>
+	                                <div className="chat-room__image-preview" style={{ padding: '0 10px', color: '#7a6a58', fontSize: '0.8rem' }}>
+	                                    {imageFile.name} (File attached) <button type="button" onClick={() => setImageFile(null)} style={{border:'none', background:'none', color:'#7a3324', cursor:'pointer'}} title="Remove image"><GalleryIcon name="close" size={14} /></button>
                                 </div>
                             )}
                             <textarea
@@ -1147,13 +1152,13 @@ function Chat() {
                 <aside className="chat-settings-panel">
                     {settingsView === 'main' ? (
                         <>
-                            <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #dadce0' }}>
+	                            <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #d8c7ad' }}>
                                 {renderChatIcon(selectedChat, 80, "chat-icon chat-icon--settings")}
-                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all', color: '#202124' }}>{selectedChat.name}</h3>
+	                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all', color: '#2f241d' }}>{selectedChat.name}</h3>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
-                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#202124' }} onClick={toggleChatMute}>
-                                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#e8eaed', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 5 }}>
-                                            {mutedChats[selectedChat.id] ? '🔕' : '🔔'}
+	                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#2f241d' }} onClick={toggleChatMute}>
+	                                        <div className="gallery-round-frame gallery-round-frame--control" style={{ width: 36, height: 36, marginBottom: 5 }}>
+	                                            <GalleryIcon name={mutedChats[selectedChat.id] ? "mutedBell" : "bell"} size={18} />
                                         </div>
                                         <small>{mutedChats[selectedChat.id] ? 'Unmute' : 'Mute'}</small>
                                     </button>
@@ -1163,7 +1168,7 @@ function Chat() {
                             <div style={{ padding: '15px' }}>
                                 <input 
                                     type="text" 
-                                    style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', border: '1px solid #dadce0', borderRadius: '20px', fontSize: '0.9rem' }}
+	                                    style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', border: '1px solid #d8c7ad', borderRadius: '20px', fontSize: '0.9rem' }}
                                     placeholder="Search in conversation..." 
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
@@ -1171,14 +1176,14 @@ function Chat() {
                             </div>
 
                             <div style={{ flex: 1, overflowY: 'auto' }}>
-                                <details style={{ padding: '15px', borderBottom: '1px solid #eee' }} open>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124' }}>Custom Chat</summary>
+	                                <details style={{ padding: '15px', borderBottom: '1px solid #d8c7ad' }} open>
+	                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#2f241d' }}>Custom Chat</summary>
                                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <div style={{display: 'flex', gap: '5px'}}>
                                             <input type="text" placeholder="New Name" value={newChatName} onChange={e => setNewChatName(e.target.value)} onKeyDown={handleRenameKeyDown} style={{padding: '4px', flex: 1, minWidth: 0}}/>
                                             <button onClick={handleRenameChat}>Rename</button>
                                         </div>
-                                        <button onClick={handleChangeChatIcon} disabled={isUpdatingChatIcon} style={{ textAlign: 'left', padding: '8px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', color: '#202124' }}>
+	                                        <button onClick={handleChangeChatIcon} disabled={isUpdatingChatIcon} style={{ textAlign: 'left', padding: '8px', background: '#fffaf1', border: '1px solid #d8c7ad', borderRadius: '4px', cursor: 'pointer', color: '#2f241d' }}>
                                             {isUpdatingChatIcon ? "Uploading icon..." : "Change Icon"}
                                         </button>
                                         <input
@@ -1191,8 +1196,8 @@ function Chat() {
                                     </div>
                                 </details>
 
-                                <details style={{ padding: '15px', borderBottom: '1px solid #eee' }}>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124' }}>Members</summary>
+	                                <details style={{ padding: '15px', borderBottom: '1px solid #d8c7ad' }}>
+	                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#2f241d' }}>Members</summary>
                                     <div style={{ marginTop: '10px' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '10px' }}>
                                             {Object.keys(selectedChat.members || {}).map((uid) => {
@@ -1204,7 +1209,7 @@ function Chat() {
 
                                                 return (
                                                     <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                        <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', background: '#e8eaed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: '#5f6368' }}>
+                                                        <div className="gallery-round-frame gallery-round-frame--member" style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', background: '#efe0c8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: '#7a3324' }}>
                                                             {memberInfo.photoURL ? (
                                                                 <img src={memberInfo.photoURL} alt={baseName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                             ) : (
@@ -1221,22 +1226,22 @@ function Chat() {
                                                                         onChange={(e) => setSingleNicknameDraft(e.target.value)}
                                                                         onKeyDown={(e) => handleNicknameKeyDown(e, uid)}
                                                                         autoFocus
-                                                                        style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '4px 6px', border: '1px solid #dadce0', borderRadius: '4px' }}
+                                                                        style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '4px 6px', border: '1px solid #d8c7ad', borderRadius: '4px' }}
                                                                     />
-                                                                    <button onClick={() => saveSingleNickname(uid)} style={{ border: 'none', background: '#0b57d0', color: 'white', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>✓</button>
-                                                                    <button onClick={cancelEditSingleNickname} style={{ border: '1px solid #dadce0', background: 'white', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>✕</button>
+	                                                                    <button className="gallery-icon-button gallery-icon-button--solid" onClick={() => saveSingleNickname(uid)} style={{ border: 'none', background: '#7a3324', color: 'white', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }} title="Save nickname"><GalleryIcon name="check" size={16} /></button>
+	                                                                    <button className="gallery-icon-button" onClick={cancelEditSingleNickname} style={{ border: '1px solid #d8c7ad', background: 'white', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }} title="Cancel"><GalleryIcon name="close" size={16} /></button>
                                                                 </div>
                                                             ) : (
                                                                 <>
                                                                     <div style={{ minWidth: 0 }}>
-                                                                        <div style={{ fontWeight: 600, color: '#202124', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
+	                                                                        <div style={{ fontWeight: 600, color: '#2f241d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
                                                                         {hasNickname && displayName !== baseName && (
-                                                                            <small style={{ color: '#5f6368' }}>{baseName}</small>
+	                                                                            <small style={{ color: '#7a6a58' }}>{baseName}</small>
                                                                         )}
                                                                     </div>
                                                                     <button 
                                                                         onClick={() => startEditSingleNickname(uid, selectedChat?.nicknames?.[uid])}
-                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: '#0b57d0', padding: '4px', flexShrink: 0 }}
+	                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: '#7a3324', padding: '4px', flexShrink: 0 }}
                                                                     >
                                                                         Edit
                                                                     </button>
@@ -1247,34 +1252,34 @@ function Chat() {
                                                 );
                                             })}
                                         </div>
-                                        <button onClick={() => setShowAddMember(true)} style={{ width: '100%', padding: '8px', background: '#e8eaed', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px' }}>+ Add member</button>
-                                        <small style={{ color: '#202124' }}>{Object.keys(selectedChat.members || {}).length} members</small>
+	                                        <button onClick={() => setShowAddMember(true)} style={{ width: '100%', padding: '8px', background: '#efe0c8', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px' }}>+ Add member</button>
+	                                        <small style={{ color: '#2f241d' }}>{Object.keys(selectedChat.members || {}).length} members</small>
                                     </div>
                                 </details>
 
-                                <details style={{ padding: '15px', borderBottom: '1px solid #eee' }}>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#202124', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={(e) => { e.preventDefault(); setSettingsView('media'); }}>
+	                                <details style={{ padding: '15px', borderBottom: '1px solid #d8c7ad' }}>
+	                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#2f241d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={(e) => { e.preventDefault(); setSettingsView('media'); }}>
                                         <span>Media, Files & Links</span>
-                                        <span>▶</span>
+	                                        <GalleryIcon name="chevronRight" size={17} />
                                     </summary>
                                 </details>
 
                                 <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    <button style={{ color: 'red', width: '100%', padding: '10px', background: 'none', border: '1px solid currentColor', borderRadius: '4px', cursor: 'pointer', textAlign: 'left' }} onClick={() => {
+	                                    <button style={{ color: '#7a3324', width: '100%', padding: '10px', background: '#fff2ea', border: '1px solid currentColor', borderRadius: '4px', cursor: 'pointer', textAlign: 'left' }} onClick={() => {
                                         if(window.confirm("Leave this chat?")){
                                             remove(ref(db, `user_chats/${user.uid}/${selectedChat.id}`));
                                             update(ref(db, `chats/${selectedChat.id}/metadata/members/${user.uid}`), null);
                                             setSelectedChat(null);
                                             setShowSettings(false);
                                         }
-                                    }}>🚪 Leave Chat</button>
+	                                    }}><GalleryIcon name="leave" size={17} /> Leave Chat</button>
                                 </div>
                             </div>
                         </>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                            <div style={{ padding: '15px', borderBottom: '1px solid #dadce0', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <button onClick={() => setSettingsView('main')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>◀</button>
+	                            <div style={{ padding: '15px', borderBottom: '1px solid #d8c7ad', display: 'flex', alignItems: 'center', gap: '10px' }}>
+	                                <button onClick={() => setSettingsView('main')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} title="Back"><GalleryIcon name="chevronLeft" size={22} /></button>
                                 <h3 style={{ margin: 0 }}>Media</h3>
                             </div>
                             <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '5px' }}>
@@ -1321,7 +1326,7 @@ function Chat() {
                                     <p style={{margin: '0 0 15px 0'}}>No friends yet. Add some friends first!</p>
                                     <button 
                                         onClick={() => { setShowNewChatModal(false); setActiveView('friends'); }}
-                                        style={{ padding: '8px 16px', background: '#0b57d0', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+	                                        style={{ padding: '8px 16px', background: '#7a3324', color: '#fffaf1', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                     >
                                         Go to Friends List
                                     </button>
@@ -1340,7 +1345,7 @@ function Chat() {
 
             {showAddMember && (
                 <div className="modal-overlay">
-                    <div className="modal" style={{background: 'white', padding: '20px', borderRadius: '8px', minWidth: '300px'}}>
+	                    <div className="modal" style={{background: '#fffaf1', padding: '20px', borderRadius: '8px', minWidth: '300px'}}>
                         <h3>Add Members</h3>
                         <div className="modal__user-list" style={{maxHeight: '200px', overflowY: 'auto', marginBottom: '15px'}}>
                             {Object.keys(friends).filter(uid => !(selectedChat?.members?.[uid])).map(uid => {
@@ -1357,7 +1362,7 @@ function Chat() {
                                     </label>
                                 );
                             })}
-                            {Object.keys(friends).filter(uid => !(selectedChat?.members?.[uid])).length === 0 && <div style={{padding: '10px', color: '#666'}}>All friends are already in this chat.</div>}
+	                            {Object.keys(friends).filter(uid => !(selectedChat?.members?.[uid])).length === 0 && <div style={{padding: '10px', color: '#7a6a58'}}>All friends are already in this chat.</div>}
                         </div>
                         <div className="modal__actions" style={{display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
                             <button onClick={() => { setShowAddMember(false); setSelectedUsers([]); }}>Cancel</button>
@@ -1370,7 +1375,7 @@ function Chat() {
                                 update(ref(db), updates);
                                 setShowAddMember(false);
                                 setSelectedUsers([]);
-                            }} disabled={selectedUsers.length === 0} style={{background: '#0b57d0', color: 'white', border: 'none', padding: '5px 15px', borderRadius: '4px'}}>
+	                            }} disabled={selectedUsers.length === 0} style={{background: '#7a3324', color: '#fffaf1', border: 'none', padding: '5px 15px', borderRadius: '4px'}}>
                                 Add
                             </button>
                         </div>
@@ -1382,12 +1387,12 @@ function Chat() {
             
             {/* Friends View */}
             {activeView === 'friends' && (
-                <main className="friends-view" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8f9fa', padding: '20px', overflowY: 'auto' }}>
+	                <main className="friends-view" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f4efe7', padding: '20px', overflowY: 'auto' }}>
                     <div style={{ maxWidth: '600px', margin: '0 auto', width: '100%' }}>
-                        <h2 style={{ marginBottom: '20px', color: '#202124' }}>Friends</h2>
+	                        <h2 style={{ marginBottom: '20px', color: '#2f241d' }}>Friends</h2>
                         
-                        <div className="card" style={{ background: '#fff', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '20px' }}>
-                            <h3 style={{ marginTop: 0, fontSize: '1rem', color: '#202124' }}>Add Friend</h3>
+	                        <div className="card" style={{ background: '#fffaf1', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(47,36,29,0.1)', marginBottom: '20px' }}>
+	                            <h3 style={{ marginTop: 0, fontSize: '1rem', color: '#2f241d' }}>Add Friend</h3>
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <input 
                                     type="email" 
@@ -1395,21 +1400,21 @@ function Chat() {
                                     value={addFriendEmail}
                                     onChange={e => setAddFriendEmail(e.target.value)}
                                     onKeyDown={handleAddFriendKeyDown}
-                                    style={{ flex: 1, padding: '10px', border: '1px solid #dadce0', borderRadius: '4px' }}
+	                                    style={{ flex: 1, padding: '10px', border: '1px solid #d8c7ad', borderRadius: '4px' }}
                                 />
-                                <button onClick={handleAddFriend} style={{ padding: '10px 20px', background: '#0b57d0', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
+	                                <button onClick={handleAddFriend} style={{ padding: '10px 20px', background: '#7a3324', color: '#fffaf1', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
                             </div>
                         </div>
 
-                        <div className="card" style={{ background: '#fff', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+	                        <div className="card" style={{ background: '#fffaf1', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(47,36,29,0.1)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                                <h3 style={{ margin: 0, fontSize: '1rem', color: '#202124' }}>My Friends ({Object.keys(friends).length})</h3>
+	                                <h3 style={{ margin: 0, fontSize: '1rem', color: '#2f241d' }}>My Friends ({Object.keys(friends).length})</h3>
                                 <input 
                                     type="text" 
                                     placeholder="Search friends..." 
                                     value={friendSearchQuery}
                                     onChange={e => setFriendSearchQuery(e.target.value)}
-                                    style={{ padding: '8px', border: '1px solid #dadce0', borderRadius: '4px' }}
+	                                    style={{ padding: '8px', border: '1px solid #d8c7ad', borderRadius: '4px' }}
                                 />
                             </div>
 
@@ -1425,12 +1430,12 @@ function Chat() {
                                         return (
                                             <div key={friend.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid #f1f3f4', borderRadius: '8px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e8eaed', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5f6368', fontWeight: 600 }}>
+                                                    <div className="gallery-round-frame gallery-round-frame--friend" style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#efe0c8', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7a3324', fontWeight: 600 }}>
                                                         {friend.photoURL ? <img src={friend.photoURL} alt={friend.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (friend.displayName || friend.email)[0].toUpperCase()}
                                                     </div>
                                                     <div>
-                                                        <div style={{ fontWeight: 500, color: '#202124' }}>{friend.displayName || friend.email}</div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#5f6368' }}>
+	                                                        <div style={{ fontWeight: 500, color: '#2f241d' }}>{friend.displayName || friend.email}</div>
+	                                                        <div style={{ fontSize: '0.8rem', color: '#7a6a58' }}>
                                                             {mutualChatsCount > 0 ? `${mutualChatsCount} mutual group(s)` : 'No mutual groups'}
                                                         </div>
                                                     </div>
@@ -1438,13 +1443,13 @@ function Chat() {
                                                 <div style={{ display: 'flex', gap: '8px' }}>
                                                     <button 
                                                         onClick={() => openDirectChat(friend.uid)}
-                                                        style={{ padding: '8px 16px', background: '#e8f0fe', color: '#0b57d0', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
+	                                                        style={{ padding: '8px 16px', background: '#efe0c8', color: '#7a3324', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
                                                     >
                                                         Chat
                                                     </button>
                                                     <button 
                                                         onClick={() => handleDeleteFriend(friend.uid, friend.displayName || friend.email)}
-                                                        style={{ padding: '8px 16px', background: '#ffebee', color: '#d93025', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
+	                                                        style={{ padding: '8px 16px', background: '#fff2ea', color: '#7a3324', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
                                                     >
                                                         Delete
                                                     </button>
@@ -1452,7 +1457,7 @@ function Chat() {
                                             </div>
                                         );
                                 })}
-                                {Object.keys(friends).length === 0 && <div style={{ textAlign: 'center', color: '#5f6368', padding: '20px 0' }}>No friends added yet.</div>}
+	                                {Object.keys(friends).length === 0 && <div style={{ textAlign: 'center', color: '#7a6a58', padding: '20px 0' }}>No friends added yet.</div>}
                             </div>
                         </div>
                     </div>
@@ -1476,7 +1481,7 @@ function Chat() {
                         onClick={() => setFullscreenImage(null)}
                         style={{ position: 'absolute', top: '20px', right: '30px', background: 'none', border: 'none', color: '#fff', fontSize: '2rem', cursor: 'pointer' }}
                     >
-                        &times;
+	                        <GalleryIcon name="close" size={30} />
                     </button>
                 </div>
             )}

@@ -1,14 +1,14 @@
 @use "sass:color";
 @use "./variables.scss" as *;
 
-$primary-color: #0b57d0;
-$bg-color: #f8f9fa;
-$card-bg: #fff;
-$text-primary: #202124;
-$text-secondary: #5f6368;
-$border-color: #dadce0;
+$primary-color: #7a3324;
+$bg-color: #f4efe7;
+$card-bg: #fffaf1;
+$text-primary: #2f241d;
+$text-secondary: #7a6a58;
+$border-color: #d8c7ad;
 $radius: 8px;
-$radius-lg: 16px;
+$radius-lg: 8px;
 
 html, body {
   margin: 0;
@@ -23,8 +23,12 @@ html, body {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  background-color: $bg-color;
-  font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background:
+    linear-gradient(90deg, rgba(122, 51, 36, 0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(122, 51, 36, 0.03) 1px, transparent 1px),
+    $bg-color;
+  background-size: 56px 56px;
+  font-family: Georgia, 'Times New Roman', serif;
   box-sizing: border-box;
 
   &__header {
@@ -34,7 +38,8 @@ html, body {
     align-items: center;
     padding: 16px 24px;
     background: $card-bg;
-    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1);
+    border-bottom: 1px solid $border-color;
+    box-shadow: 0 10px 28px rgba(47, 36, 29, 0.06);
     z-index: 10;
     height: 64px;
     box-sizing: border-box;
@@ -43,20 +48,20 @@ html, body {
       margin: 0;
       font-size: 1.25rem;
       color: $text-primary;
-      font-weight: 500;
+      font-weight: 700;
     }
 
     .profile-page__back {
       text-decoration: none;
       color: $primary-color;
-      font-weight: 500;
+      font-weight: 700;
       font-size: 0.875rem;
       padding: 8px 16px;
       border-radius: $radius;
       transition: background 0.2s;
 
       &:hover {
-        background: rgba($primary-color, 0.05);
+        background: rgba($primary-color, 0.08);
       }
     }
 
@@ -67,16 +72,16 @@ html, body {
     }
 
     .profile-page__logout {
-      border: 1px solid #f3c3bf;
-      background: #fce8e6;
-      color: #c5221f;
+      border: 1px solid #d8a28f;
+      background: #fff2ea;
+      color: #7a3324;
       border-radius: $radius;
       font-weight: 600;
       padding: 8px 14px;
       cursor: pointer;
 
       &:hover {
-        background: #f9d8d4;
+        background: #f2d9c9;
       }
     }
   }
@@ -109,7 +114,8 @@ html, body {
 .profile-card {
   background: $card-bg;
   border-radius: $radius-lg;
-  box-shadow: 0 4px 6px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.05);
+  border: 1px solid $border-color;
+  box-shadow: 0 24px 58px rgba(47, 36, 29, 0.13);
   width: 100%;
   max-width: 500px;
   max-height: 100%; /* Respect parent height */
@@ -131,7 +137,7 @@ html, body {
       width: 6px;
     }
     &::-webkit-scrollbar-thumb {
-      background: $border-color;
+      background: #c6a06a;
       border-radius: 4px;
     }
     &::-webkit-scrollbar-track {
@@ -156,11 +162,11 @@ html, body {
     height: 80px;
     border-radius: 50%;
     overflow: hidden;
-    background: #e8eaed;
+    background: #efe0c8;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid $border-color;
+    border: 2px solid #c6a06a;
 
     img {
       width: 100%;
@@ -170,7 +176,7 @@ html, body {
 
     &-placeholder {
       font-size: 2rem;
-      color: $text-secondary;
+      color: #7a3324;
       font-weight: 500;
     }
   }
@@ -185,7 +191,7 @@ html, body {
     transition: background 0.2s;
 
     &:hover {
-      background: rgba($primary-color, 0.05);
+      background: rgba($primary-color, 0.08);
     }
 
     input {
@@ -240,19 +246,19 @@ html, body {
 
     &:focus {
       outline: none;
-      border-color: $primary-color;
-      box-shadow: 0 0 0 2px rgba($primary-color, 0.2);
+      border-color: #b88a50;
+      box-shadow: 0 0 0 3px rgba(#b88a50, 0.18);
     }
 
     &--disabled {
-      background-color: #f1f3f4;
+      background-color: #efe2cf;
       color: $text-secondary;
       cursor: not-allowed;
-      border-color: #e8eaed;
+      border-color: #e0c8a6;
       
       &:focus {
         box-shadow: none;
-        border-color: #e8eaed;
+        border-color: #e0c8a6;
       }
     }
   }
@@ -271,15 +277,15 @@ html, body {
     font-weight: 500;
 
     &--success {
-      background-color: #e6f4ea;
-      color: #137333;
-      border: 1px solid #ceead6;
+      background-color: #f1e5d4;
+      color: #5a3a27;
+      border: 1px solid #c6a06a;
     }
 
     &--error {
-      background-color: #fce8e6;
-      color: #c5221f;
-      border: 1px solid #fad2cf;
+      background-color: #fff2ea;
+      color: #7a3324;
+      border: 1px solid #d8a28f;
     }
   }
 
@@ -297,7 +303,7 @@ html, body {
     flex-shrink: 0;
 
     &:hover:not(:disabled) {
-      background: color.adjust(#0b57d0, $lightness: -10%);
+      background: color.adjust(#7a3324, $lightness: -7%);
     }
 
     &:active:not(:disabled) {
@@ -305,7 +311,7 @@ html, body {
     }
 
     &:disabled {
-      background-color: #aecbfa;
+      background-color: #cab79b;
       cursor: not-allowed;
     }
   }

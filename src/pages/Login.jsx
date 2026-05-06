@@ -11,7 +11,7 @@ function Login() {
     }
 
     return (
-        <div className="app" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div className="app app--gallery-entrance">
             <Auth />
         </div>
     );

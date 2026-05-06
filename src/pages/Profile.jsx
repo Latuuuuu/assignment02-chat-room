@@ -5,6 +5,7 @@ import { auth, db, storage } from "../config";
 import { updateEmail, signOut } from "firebase/auth";
 import { ref, get, update } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { GalleryIcon } from "../components/GalleryIcons.jsx";
 import "../styles/chat.scss"; // For chat-layout and main-nav
 import "../styles/profile.scss";
 
@@ -104,14 +105,14 @@ function Profile() {
 
     return (
         <div className="chat-layout">
-            <nav className="main-nav">
-                <div className="main-nav__top">
-                    <button className="nav-icon" onClick={() => navigate('/chat')} title="Chats">
-                        💬
-                    </button>
-                    <button className="nav-icon" onClick={() => navigate('/chat', { state: { view: 'friends' }})} title="Friends">
-                        👥
-                    </button>
+	            <nav className="main-nav">
+	                <div className="main-nav__top">
+	                    <button className="nav-icon" onClick={() => navigate('/chat')} title="Chats">
+	                        <GalleryIcon name="chat" size={22} title="Chats" />
+	                    </button>
+	                    <button className="nav-icon" onClick={() => navigate('/chat', { state: { view: 'friends' }})} title="Friends">
+	                        <GalleryIcon name="friends" size={22} title="Friends" />
+	                    </button>
                 </div>
                 <div className="main-nav__bottom">
                     <button className="nav-icon profile-icon active" title="Profile">

@@ -1,48 +1,139 @@
 @use "sass:color";
 @use "./variables.scss" as *;
 
-$primary-color: #0b57d0;
-$bg-color: #f8f9fa;
-$card-bg: #fff;
-$text-primary: #202124;
-$text-secondary: #5f6368;
-$border-color: #dadce0;
+$primary-color: #7a3324;
+$bg-color: #f4efe7;
+$card-bg: #fffaf1;
+$text-primary: #2f241d;
+$text-secondary: #7a6a58;
+$border-color: #d8c7ad;
 $radius: 8px;
-$radius-lg: 16px;
+$radius-lg: 8px;
+
+.app--gallery-entrance {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  box-sizing: border-box;
+  background:
+    linear-gradient(90deg, rgba(92, 45, 32, 0.06) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(92, 45, 32, 0.05) 1px, transparent 1px),
+    radial-gradient(circle at 18% 18%, rgba(196, 143, 84, 0.2), transparent 24%),
+    linear-gradient(135deg, #f7f1e8 0%, #e8dccb 100%);
+  background-size: 56px 56px, 56px 56px, auto, auto;
+}
 
 .auth {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 400px;
+  max-width: 430px;
   background: $card-bg;
+  border: 1px solid rgba($border-color, 0.95);
   border-radius: $radius-lg;
-  box-shadow: 0 4px 6px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.05);
-  font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  box-shadow: 0 24px 60px rgba(74, 45, 28, 0.18), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  font-family: Georgia, 'Times New Roman', serif;
   overflow: hidden;
+  animation: galleryCardEnter 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
-  // ── Top header bar ───────────────────────────────────
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 10px;
+    border: 1px solid rgba(#b88a50, 0.35);
+    pointer-events: none;
+  }
+
+  &__entrance {
+    height: 112px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 20px 24px 0;
+    background: linear-gradient(#f8f0e4, #fffaf1);
+  }
+
+  &__arch {
+    position: relative;
+    display: block;
+    height: 92px;
+    border: 1px solid #c6a06a;
+    border-bottom: none;
+    border-radius: 52px 52px 0 0;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(122, 51, 36, 0.07)),
+      linear-gradient(90deg, transparent 45%, rgba(#8f6f45, 0.25) 45%, rgba(#8f6f45, 0.25) 55%, transparent 55%);
+    transform-origin: bottom center;
+    animation: archReveal 1100ms ease both;
+
+    &::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 0;
+      height: 44px;
+      border: 5px solid #7a3324;
+      border-bottom: none;
+      border-radius: 32px 32px 0 0;
+      box-shadow: 0 0 0 1px rgba(#b88a50, 0.55);
+      opacity: 0.78;
+    }
+  }
+
+  &__arch--left { animation-delay: 60ms; }
+  &__arch--center { animation-delay: 180ms; }
+  &__arch--right { animation-delay: 300ms; }
+
   &__header {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 24px 16px;
-    background: $card-bg;
+    justify-content: flex-start;
+    gap: 14px;
+    padding: 24px 28px;
+    background: rgba(#fffaf1, 0.92);
     border-bottom: 1px solid $border-color;
   }
 
-  &__logo      { font-size: 28px; line-height: 1; }
-  &__brand-name { font-size: 20px; font-weight: 500; color: $text-primary; }
+  &__logo {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #b88a50;
+    border-radius: 50%;
+    color: #7a3324;
+    font-size: 24px;
+    line-height: 1;
+    font-weight: 700;
+    background: #f2e2c8;
+  }
 
-  // ── Scrollable body ──────────────────────────────────
+  &__brand-name {
+    display: block;
+    font-size: 22px;
+    font-weight: 700;
+    color: $text-primary;
+    letter-spacing: 0;
+  }
+
+  &__tagline {
+    display: block;
+    margin-top: 2px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.76rem;
+    color: $text-secondary;
+  }
+
   &__body {
-    padding: 32px 24px;
+    padding: 30px 28px 34px;
     display: flex;
     flex-direction: column;
   }
 
-  // ── Sign-in form ─────────────────────────────────────
   &__form { display: flex; flex-direction: column; gap: 0; }
 
   &__field { margin-bottom: 20px; }
@@ -50,7 +141,8 @@ $radius-lg: 16px;
   &__label {
     display: block;
     font-size: 0.875rem;
-    font-weight: 500;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-weight: 600;
     color: $text-primary;
     margin-bottom: 8px;
   }
@@ -68,14 +160,14 @@ $radius-lg: 16px;
     transition: border-color 0.2s, box-shadow 0.2s;
     &:focus { 
       border-color: $primary-color; 
-      box-shadow: 0 0 0 2px rgba($primary-color, 0.2);
+      box-shadow: 0 0 0 3px rgba($primary-color, 0.13);
     }
   }
 
   &__error {
-    background: #fce8e6;
-    border: 1px solid #fad2cf;
-    color: #c5221f;
+    background: #fff2ea;
+    border: 1px solid #d8a28f;
+    color: #7a3324;
     padding: 10px 14px;
     border-radius: $radius;
     font-size: 0.875rem;
@@ -93,24 +185,26 @@ $radius-lg: 16px;
   &__submit {
     flex: 1;
     padding: 12px;
-    background: $primary-color;
+    background: #7a3324;
     color: #fff;
     border: none;
     border-radius: $radius;
     font-size: 1rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
     
     &:hover:not(:disabled) {
-      background-color: color.adjust($primary-color, $lightness: -10%);
+      background-color: color.adjust($primary-color, $lightness: -7%);
+      box-shadow: 0 8px 18px rgba(122, 51, 36, 0.24);
+      transform: translateY(-1px);
     }
     
     &--signup {
-      background: #f1f3f4;
+      background: #efe2cf;
       color: $text-primary;
       &:hover:not(:disabled) {
-        background: #e8eaed;
+        background: #e5d2b7;
       }
     }
 
@@ -123,7 +217,12 @@ $radius-lg: 16px;
     gap: 10px;
     margin-bottom: 24px;
     &-line { flex: 1; height: 1px; background: $border-color; }
-    &-text  { color: $text-secondary; font-size: 0.875rem; white-space: nowrap; }
+    &-text  {
+      color: $text-secondary;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 0.875rem;
+      white-space: nowrap;
+    }
   }
 
   &__google {
@@ -140,11 +239,14 @@ $radius-lg: 16px;
     justify-content: center;
     gap: 12px;
     color: $text-primary;
-    transition: background 0.2s;
-    &:hover { background: #f8f9fa; }
+    transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    &:hover {
+      background: #f7eddd;
+      border-color: #b88a50;
+      transform: translateY(-1px);
+    }
   }
 
-  // ── Signed-in profile ────────────────────────────────
   &__profile {
     display: flex;
     flex-direction: column;
@@ -156,13 +258,13 @@ $radius-lg: 16px;
     width: 80px;
     height: 80px;
     border-radius: 50%;
-    border: 2px solid $border-color;
+    border: 2px solid #c6a06a;
     margin-bottom: 16px;
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #e8eaed;
+    background: #efe2cf;
 
     img  { width: 100%; height: 100%; object-fit: cover; }
     span { font-size: 2rem; font-weight: 400; color: $text-secondary; }
@@ -173,9 +275,9 @@ $radius-lg: 16px;
 
   &__signed-badge {
     display: inline-block;
-    background: #e6f4ea;
-    border: 1px solid #ceead6;
-    color: #137333;
+    background: #f1e5d4;
+    border: 1px solid #c6a06a;
+    color: #5a3a27;
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 0.75rem;
@@ -196,9 +298,40 @@ $radius-lg: 16px;
     transition: background 0.2s, color 0.2s, border-color 0.2s;
     
     &:hover {
-      background: #fce8e6;
-      border-color: #fce8e6;
-      color: #c5221f;
+      background: #fff2ea;
+      border-color: #d8a28f;
+      color: #7a3324;
     }
+
+    &--profile {
+      margin-bottom: 8px;
+      background: #efe2cf;
+      color: $text-primary;
+    }
+  }
+}
+
+@keyframes galleryCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes archReveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scaleY(0.78);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
   }
 }

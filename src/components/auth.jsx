@@ -34,7 +34,6 @@ const errorMap = {
 export const Auth = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [mode, setMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -62,15 +61,21 @@ export const Auth = () => {
 
     return (
         <div className="auth">
-            {/* Header */}
+            <div className="auth__entrance" aria-hidden="true">
+                <span className="auth__arch auth__arch--left" />
+                <span className="auth__arch auth__arch--center" />
+                <span className="auth__arch auth__arch--right" />
+            </div>
             <div className="auth__header">
-                <span className="auth__logo">📡</span>
-                <span className="auth__brand-name">Chat App</span>
+                <span className="auth__logo">G</span>
+                <div>
+                    <span className="auth__brand-name">Galleria Chat</span>
+                    <span className="auth__tagline">A quiet salon for conversation</span>
+                </div>
             </div>
 
             <div className="auth__body">
                 {user ? (
-                    /* ── Signed-in state ── */
                     <div className="auth__profile">
                         <div className="auth__avatar">
                             {user.photoURL
@@ -80,12 +85,11 @@ export const Auth = () => {
                         </div>
                         <div className="auth__profile-name">{user.displayName || 'User'}</div>
                         <div className="auth__profile-email">{user.email}</div>
-                        <div className="auth__signed-badge">● Signed in</div>
-                        <button className="auth__signout" onClick={() => navigate('/profile')} style={{ background: '#e0e0e0', color: '#333', marginBottom: '8px' }}>Edit Profile</button>
+                        <div className="auth__signed-badge">Signed in</div>
+                        <button className="auth__signout auth__signout--profile" onClick={() => navigate('/profile')}>Edit Profile</button>
                         <button className="auth__signout" onClick={() => signOut(auth)}>Sign Out</button>
                     </div>
                 ) : (
-                    /* ── Sign-in form ── */
                     <div className="auth__form">
                         <div className="auth__field">
                             <label className="auth__label">Email</label>
@@ -116,7 +120,7 @@ export const Auth = () => {
                             <button className="auth__submit" onClick={() => handleEmailAuth('login')} disabled={loading}>
                                 {loading ? 'Wait…' : 'Sign In'}
                             </button>
-                            <button className="auth__submit auth__submit--signup" style={{ background: '#eee', color: '#333' }} onClick={() => handleEmailAuth('signup')} disabled={loading}>
+                            <button className="auth__submit auth__submit--signup" onClick={() => handleEmailAuth('signup')} disabled={loading}>
                                 {loading ? 'Wait…' : 'Sign Up'}
                             </button>
                         </div>
