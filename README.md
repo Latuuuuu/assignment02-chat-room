@@ -6,8 +6,8 @@ Galleria Chat 是一個以「文藝復興美術館 / 畫廊」為主題的即時
 
 ## Demo / Submission Links
 
-- Firebase Hosting URL: `請填入你的 Firebase Deploy URL`
-- GitHub Repository URL: `請填入你的 GitHub URL`
+- Firebase Hosting URL: `https://chat-room-885ce.firebaseapp.com/`
+- GitHub Repository URL: `https://github.com/Latuuuuu/assignment02-chat-room`
 - Project root: `assignment02-chat-room`
 
 ## Tech Stack
@@ -666,53 +666,68 @@ npm run deploy    # Build and deploy Firebase Hosting
 
 ## Assignment Requirement Checklist
 
-### Basic Components
+### Basic Requirements
 
-- Membership mechanism: Email sign up / sign in。
-- Firebase authenticated read/write。
-- Chatroom core:
-  - 建立私訊。
-  - 建立群組。
-  - 邀請成員。
-  - 即時訊息。
-  - 歷史訊息載入。
-- React framework。
-- Firebase Hosting。
-- RWD 基本支援。
+- [x] Membership mechanism: Email sign up / sign in.
+- [x] Firebase Authentication integration.
+- [x] Firebase authenticated read/write for app data.
+- [x] Chatroom core features:
+  - [x] Create direct chat.
+  - [x] Create group chat.
+  - [x] Add / invite members.
+  - [x] Send realtime text messages.
+  - [x] Load chat history.
+  - [x] Display each direct chat as the other user's name and avatar.
+- [x] React framework.
+- [x] Firebase Hosting deployment.
+- [x] Responsive layout.
 
-### Advanced Components
+### Advanced Requirements
 
-- Google Sign-In。
-- Chrome notification。
-- CSS animation:
-  - Entry intro animation。
-  - Painting hanging / breathing animation。
-  - Message frame-in animation。
-  - Pinned message spotlight animation。
-  - Gallery dialog animation。
-- Safe rendering for code / HTML-like messages。
-- User profile。
-- Message operations:
-  - Edit。
-  - Unsend。
-  - Search。
-  - Send image。
+- [x] Google Sign-In.
+- [x] Browser / Chrome notification.
+- [x] CSS animation:
+  - [x] Entry intro animation.
+  - [x] Painting hanging / breathing animation.
+  - [x] Message frame-in animation.
+  - [x] Pinned message spotlight animation.
+  - [x] Gallery dialog animation.
+- [x] Safe rendering for code / HTML-like messages.
+- [x] User profile page and profile picture upload.
+- [x] Message operations:
+  - [x] Edit message.
+  - [x] Unsend message.
+  - [x] Search messages.
+  - [x] Send image.
 
-### Bonus / Extra Features
+### Bonus Features
 
-- Reply specific message。
-- Emoji picker。
-- Emoji reaction。
-- GIPHY GIF search / send。
-- Mentions / @everyone。
-- Notification preference: All / Mentions / Muted。
-- Pinned messages。
-- Read receipts。
-- Custom chat icon。
-- Member nickname。
-- Abstract default avatar。
-- Theme-consistent gallery dialog。
-- Interactive draggable painting entry page。
+- [x] Friend system.
+- [x] Reply specific message.
+- [x] Emoji picker.
+- [x] Emoji reaction.
+- [x] GIPHY GIF search / send.
+- [x] Mentions / @everyone.
+- [x] Notification preference: All / Mentions / Muted.
+- [x] Pinned messages.
+- [x] Read receipts.
+- [x] Custom chat icon.
+- [x] Member nickname.
+- [x] Abstract default avatar.
+- [x] Theme-consistent gallery dialog.
+- [x] Interactive draggable painting entry page.
+
+### Submission Checklist
+
+- [x] Firebase Hosting URL is listed in this README.
+- [x] GitHub repository URL is listed in this README.
+- [x] `npm run build` succeeds.
+- [x] `npm run deploy` is configured for Firebase Hosting.
+- [x] `public/` contains the latest production build.
+- [x] `AI_reference.pdf` is included.
+- [x] Zip package should include source code, `public/`, `static/`, Firebase config files, package files, and README.
+- [x] Zip package should exclude `node_modules/`, `.git/`, `.firebase/`, `.env`, local logs, and old zip files.
+- [x] MD5 checksum can be generated after creating the zip.
 
 ## Manual Test Guide
 
@@ -766,44 +781,3 @@ npm run deploy    # Build and deploy Firebase Hosting
 4. 點驗證連結。
 5. 用新 email 登入。
 6. 確認資料庫 email 已同步。
-
-## Known Limitations
-
-- 一般檔案傳送尚未實作，`Files` panel 目前是空狀態。
-- Block user 尚未實作。
-- Custom sticker 尚未實作。
-- Chatbot 已移除，不包含於目前功能。
-- Firebase Realtime Database rules 目前是 authenticated global read/write，正式產品應細分聊天室與使用者權限。
-- Firebase Storage rules 需在 Firebase Console 確認 authenticated upload/read 權限。
-- Build 時 Vite 可能出現 chunk size warning，但目前不影響執行。
-
-## Security Notes
-
-- 不把 Gemini / GPT API key 放在前端，本專案目前沒有 chatbot。
-- GIPHY API key 是前端公開 key，請使用 GIPHY 提供給 client-side app 的 key。
-- `.env` 已被 `.gitignore` 忽略。
-- Email 修改使用 Firebase `verifyBeforeUpdateEmail`，需要使用者驗證新 email。
-- 訊息內容不使用 raw HTML injection。
-
-## Build Status
-
-最近一次確認：
-
-```bash
-npm run build
-```
-
-結果：成功。
-
-## Submission Notes
-
-繳交前請確認：
-
-- 已填入 Firebase Hosting URL。
-- 已填入 GitHub Repository URL。
-- `npm run build` 成功。
-- `npm run deploy` 成功。
-- `public/` 是最新 build 產物。
-- zip 不包含 `node_modules/`。
-- 已依作業要求產生 MD5 checksum。
-- 若有使用 AI 協助，補上 `AI_reference.pdf`。

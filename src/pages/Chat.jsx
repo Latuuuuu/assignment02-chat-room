@@ -352,9 +352,9 @@ function Chat() {
                 const senderName = nickname?.trim() || getUserDisplayName(senderInfo);
 
                 sendBrowserNotification(
-                    `New message in ${chat.name || "Chat"}`,
+                    `New message in ${getChatTitle(chat)}`,
                     `${senderName}: ${getMessagePreview(latestMessage)}`,
-                    senderInfo?.photoURL || chat.iconUrl || "/react.svg"
+                    senderInfo?.photoURL || getDirectChatPeer(chat)?.photoURL || chat.iconUrl || "/react.svg"
                 );
             });
         });
@@ -855,7 +855,7 @@ function Chat() {
         };
         await update(ref(db), updates);
 
-        setSelectedChat({ id: newChatRef.key, name: chatName, members: chatMembers });
+        setSelectedChat({ id: newChatRef.key, name: chatName, members: chatMembers, isDirect: true });
         setActiveView("chats");
     };
 
@@ -953,11 +953,41 @@ function Chat() {
         );
     };
 
+    const getDirectChatPeer = (chat) => {
+        if (!chat?.isDirect || !user?.uid) return null;
+        const peerUid = Object.keys(chat.members || {}).find((uid) => uid !== user.uid);
+        return peerUid ? getMemberInfo(peerUid) : null;
+    };
+
+    const getChatTitle = (chat) => {
+        const peer = getDirectChatPeer(chat);
+        if (peer) return getUserDisplayName(peer);
+        return chat?.name || "Chat";
+    };
+
     const renderChatIcon = (chat, size, className) => {
+        const directPeer = getDirectChatPeer(chat);
+        if (directPeer?.photoURL) {
+            const peerName = getUserDisplayName(directPeer);
+            return (
+                <span className={`gallery-round-frame ${className}`} style={{ width: size, height: size }}>
+                    <img src={directPeer.photoURL} alt={peerName} />
+                </span>
+            );
+        }
+
+        if (directPeer) {
+            return (
+                <div className={`gallery-round-frame ${className}`} style={{ width: size, height: size }}>
+                    <AbstractAvatar seed={directPeer.uid || directPeer.email || getUserDisplayName(directPeer)} />
+                </div>
+            );
+        }
+
         if (chat?.iconUrl) {
             return (
                 <span className={`gallery-round-frame ${className}`} style={{ width: size, height: size }}>
-                    <img src={chat.iconUrl} alt={chat.name || "Chat icon"} />
+                    <img src={chat.iconUrl} alt={getChatTitle(chat)} />
                 </span>
             );
         }
@@ -1277,7 +1307,7 @@ function Chat() {
                                         {renderChatIcon(chat, 40, "chat-icon chat-icon--sidebar")}
                                     </div>
                                     <div className="chat-sidebar__item-info">
-                                        <span className="chat-sidebar__item-name">{chat.name}</span>
+                                        <span className="chat-sidebar__item-name">{getChatTitle(chat)}</span>
                                     </div>
                                 </div>
                             ))}
@@ -1291,7 +1321,7 @@ function Chat() {
                                 <header className="chat-room__header">
                             <div className="chat-room__title-wrap" style={{display: 'flex', alignItems: 'center'}}>
                                 {renderChatIcon(selectedChat, 32, "chat-icon chat-icon--header")}
-                                <h3>{selectedChat.name}</h3>
+                                <h3>{getChatTitle(selectedChat)}</h3>
                             </div>
                             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
 	                                <button className="settings-btn" onClick={() => setShowSettings(!showSettings)} style={{fontSize: '1.2rem', cursor: 'pointer', background: 'none', border: 'none'}} title="Conversation settings"><GalleryIcon name="settings" size={22} /></button>
@@ -1631,7 +1661,7 @@ function Chat() {
                         <>
 	                            <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #d8c7ad' }}>
                                 {renderChatIcon(selectedChat, 80, "chat-icon chat-icon--settings")}
-	                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all', color: '#2f241d' }}>{selectedChat.name}</h3>
+	                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all', color: '#2f241d' }}>{getChatTitle(selectedChat)}</h3>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
 	                                    <button className="chat-settings-panel__notification-btn" onClick={cycleNotificationPreference}>
 	                                        <div className="gallery-round-frame gallery-round-frame--control">
