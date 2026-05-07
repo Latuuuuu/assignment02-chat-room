@@ -2,10 +2,12 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { Link, useNavigate } from "react-router-dom";
 import { auth, db, storage } from "../config";
-import { updateEmail, signOut } from "firebase/auth";
+import { verifyBeforeUpdateEmail, signOut } from "firebase/auth";
 import { ref, get, update } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { GalleryIcon } from "../components/GalleryIcons.jsx";
+import { AbstractAvatar } from "../components/AbstractAvatar.jsx";
+import { useGalleryDialog } from "../components/GalleryDialog.jsx";
 import "../styles/chat.scss"; // For chat-layout and main-nav
 import "../styles/profile.scss";
 
@@ -23,6 +25,7 @@ function Profile() {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState("");
     const [file, setFile] = useState(null);
+    const { dialogNode, notify } = useGalleryDialog();
 
     useEffect(() => {
         if (user) {
@@ -70,26 +73,38 @@ function Profile() {
                 updatedPhotoURL = await getDownloadURL(imageRef);
             }
 
-            if (profile.email !== user.email) {
-                await updateEmail(auth.currentUser, profile.email);
+            const emailChanged = profile.email !== user.email;
+            if (emailChanged) {
+                await verifyBeforeUpdateEmail(auth.currentUser, profile.email);
             }
 
             const updates = {
                 displayName: profile.displayName,
-                email: profile.email,
+                email: user.email,
                 phone: profile.phone,
                 address: profile.address,
-                photoURL: updatedPhotoURL
+                photoURL: updatedPhotoURL,
+                pendingEmail: emailChanged ? profile.email : null
             };
 
             await update(ref(db, `users/${user.uid}`), updates);
             setProfile(prev => ({ ...prev, photoURL: updatedPhotoURL }));
             setFile(null);
+            if (emailChanged) {
+                await notify("Verification email sent. Please open it, verify the new email, then sign in again with the new email.", {
+                    title: "Verify New Email"
+                });
+                await signOut(auth);
+                navigate("/login", { replace: true });
+                return;
+            }
             setMessage("Profile updated successfully!");
         } catch (error) {
             console.error("Error updating profile:", error);
             if (error.code === 'auth/requires-recent-login') {
-                setMessage("Please log out and log in again to update your email.");
+                setMessage("For security, please log out, log in again, then update your email.");
+            } else if (error.code === 'auth/operation-not-allowed') {
+                setMessage("Email changes require verification. Check Firebase Authentication email/password settings, then try again.");
             } else {
                 setMessage("Failed to update profile: " + error.message);
             }
@@ -105,6 +120,7 @@ function Profile() {
 
     return (
         <div className="chat-layout">
+            {dialogNode}
 	            <nav className="main-nav">
 	                <div className="main-nav__top">
 	                    <button className="nav-icon" onClick={() => navigate('/chat')} title="Chats">
@@ -119,7 +135,7 @@ function Profile() {
                         {profile.photoURL ? (
                             <img src={profile.photoURL} alt="Profile" />
                         ) : (
-                            <span>{profile.displayName ? profile.displayName[0].toUpperCase() : "?"}</span>
+                            <AbstractAvatar seed={user.uid || profile.email} />
                         )}
                     </button>
                 </div>
@@ -141,9 +157,7 @@ function Profile() {
                                 {profile.photoURL ? (
                                     <img src={profile.photoURL} alt="Profile" />
                                 ) : (
-                                    <div className="profile-card__avatar-placeholder">
-                                        {profile.displayName ? profile.displayName[0].toUpperCase() : "?"}
-                                    </div>
+                                    <AbstractAvatar seed={user.uid || profile.email} />
                                 )}
                             </div>
                             <label className="profile-card__upload-btn">
@@ -157,7 +171,7 @@ function Profile() {
                             <div className="profile-card__field">
                                 <label>Email</label>
                                 <input type="email" name="email" value={profile.email} onChange={handleChange} className="profile-card__input" required />
-                                <small>Updating this will update your database email.</small>
+                                <small>Changing email updates your login email and signs you out to verify the new sign-in.</small>
                             </div>
                             <div className="profile-card__field">
                                 <label>Display Name</label>

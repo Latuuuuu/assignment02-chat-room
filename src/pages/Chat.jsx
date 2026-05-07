@@ -6,10 +6,16 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage
 import { useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../config.js";
-import { MUTED_CHATS_KEY } from "../constants/storageKeys.js";
+import { MUTED_CHATS_KEY, NOTIFICATION_PREFS_KEY } from "../constants/storageKeys.js";
 import { filterMessagesByQuery, getChatAvatarFallback, getMessagePreview, getUserDisplayName } from "../utils/chatUtils.js";
 import { GalleryIcon } from "../components/GalleryIcons.jsx";
+import { AbstractAvatar } from "../components/AbstractAvatar.jsx";
+import { useGalleryDialog } from "../components/GalleryDialog.jsx";
 import "../styles/chat.scss";
+
+const GIPHY_API_KEY = import.meta.env.VITE_GIPHY_API_KEY;
+const EMOJI_PICKER_OPTIONS = ["😀", "😊", "😂", "😍", "🥹", "😎", "😭", "😡", "👍", "👏", "🙏", "❤️", "🔥", "✨", "🎉", "💡"];
+const REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 function Chat() {
     const { user } = useAuth();
@@ -17,6 +23,7 @@ function Chat() {
     const location = useLocation();
 
     const [userChats, setUserChats] = useState([]);
+    const [userChatsLoaded, setUserChatsLoaded] = useState(false);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
@@ -58,6 +65,16 @@ function Chat() {
 
     const [imageFile, setImageFile] = useState(null);
     const [fullScreenImage, setFullscreenImage] = useState(null);
+    const [showGifPicker, setShowGifPicker] = useState(false);
+    const [gifQuery, setGifQuery] = useState("");
+    const [gifResults, setGifResults] = useState([]);
+    const [gifLoading, setGifLoading] = useState(false);
+    const [gifError, setGifError] = useState("");
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [notificationPrefs, setNotificationPrefs] = useState({});
+    const [mentionQuery, setMentionQuery] = useState(null);
+    const [mentionStart, setMentionStart] = useState(null);
+    const [selectedMentions, setSelectedMentions] = useState({});
     
     const [replyingTo, setReplyingTo] = useState(null);
     const [lastReadMsgId, setLastReadMsgId] = useState(null);
@@ -91,6 +108,38 @@ function Chat() {
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const [isChatReady, setIsChatReady] = useState(false);
     const pinnedMessageIdSet = useMemo(() => new Set(pinnedMessages.map((pm) => pm.id)), [pinnedMessages]);
+    const { dialogNode, notify, confirm } = useGalleryDialog();
+
+    const getMentionLabel = (profile) => {
+        if (profile?.uid === "everyone") return "everyone";
+        return getUserDisplayName(profile).replace(/\s+/g, "");
+    };
+
+    const getMentionSuggestions = () => {
+        if (mentionQuery === null) return [];
+        const normalized = mentionQuery.toLowerCase();
+        const memberProfiles = Object.keys(selectedChat?.members || {})
+            .filter((uid) => uid !== user?.uid)
+            .map((uid) => getMemberInfo(uid));
+        const suggestions = [
+            { uid: "everyone", displayName: "Everyone", isEveryone: true },
+            ...memberProfiles
+        ];
+
+        return suggestions
+            .filter((profile, index, list) => list.findIndex((item) => item.uid === profile.uid) === index)
+            .filter((profile) => {
+                const label = getMentionLabel(profile).toLowerCase();
+                const name = getUserDisplayName(profile).toLowerCase();
+                return label.includes(normalized) || name.includes(normalized);
+            })
+            .slice(0, 6);
+    };
+
+    const isMentionForUser = (message, uid = user?.uid) => {
+        if (!message || !uid) return false;
+        return Boolean(message.mentions?.everyone || message.mentions?.[uid]);
+    };
     
     const requestNotificationPermission = async () => {
         if (!("Notification" in window)) {
@@ -118,15 +167,92 @@ function Chat() {
             if (storedMuted) {
                 setMutedChats(JSON.parse(storedMuted));
             }
+            const storedPrefs = localStorage.getItem(NOTIFICATION_PREFS_KEY);
+            if (storedPrefs) {
+                setNotificationPrefs(JSON.parse(storedPrefs));
+            }
         }catch (e) {
-            console.error("Failed to load muted chats from localStorage", e);
+            console.error("Failed to load notification settings from localStorage", e);
             setMutedChats({});
+            setNotificationPrefs({});
         }
     }, []);
 
     useEffect(() => {
         mutedChatsRef.current = mutedChats;
     }, [mutedChats]);
+
+    useEffect(() => {
+        if (!showGifPicker) return;
+
+        if (!GIPHY_API_KEY) {
+            setGifResults([]);
+            setGifError("Set VITE_GIPHY_API_KEY to enable GIF search.");
+            return;
+        }
+
+        const controller = new AbortController();
+        const searchTerm = gifQuery.trim().slice(0, 50);
+
+        const timer = setTimeout(async () => {
+            setGifLoading(true);
+            setGifError("");
+
+            try {
+                const endpoint = searchTerm
+                    ? "https://api.giphy.com/v1/gifs/search"
+                    : "https://api.giphy.com/v1/gifs/trending";
+                const params = new URLSearchParams({
+                    api_key: GIPHY_API_KEY,
+                    limit: "12",
+                    rating: "pg",
+                    bundle: "messaging_non_clips"
+                });
+
+                if (searchTerm) {
+                    params.set("q", searchTerm);
+                }
+
+                const response = await fetch(`${endpoint}?${params.toString()}`, {
+                    signal: controller.signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`GIPHY request failed (${response.status})`);
+                }
+
+                const payload = await response.json();
+                const gifs = (payload.data || []).map((gif) => {
+                    const preview = gif.images?.fixed_width_small || gif.images?.fixed_width || gif.images?.downsized;
+                    const messageImage = gif.images?.downsized_medium || gif.images?.fixed_width || gif.images?.original;
+
+                    return {
+                        id: gif.id,
+                        title: gif.title || "GIPHY GIF",
+                        previewUrl: preview?.url || messageImage?.url,
+                        gifUrl: messageImage?.url || preview?.url,
+                        giphyUrl: gif.url
+                    };
+                }).filter((gif) => gif.previewUrl && gif.gifUrl);
+
+                setGifResults(gifs);
+            } catch (error) {
+                if (error.name !== "AbortError") {
+                    console.error("GIPHY search failed", error);
+                    setGifError("Could not load GIFs. Please try again.");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setGifLoading(false);
+                }
+            }
+        }, 250);
+
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [showGifPicker, gifQuery]);
 
     useEffect(() => {
         if (!user) return;
@@ -215,7 +341,9 @@ function Chat() {
 
                 if (latestMessage.senderId === user.uid) return;
                 if (document.hasFocus() && !document.hidden) return;
-                if (mutedChatsRef.current[chat.id]) return;
+                const pref = notificationPrefs[chat.id] || (mutedChatsRef.current[chat.id] ? "muted" : "all");
+                if (pref === "muted") return;
+                if (pref === "mentions" && !isMentionForUser(latestMessage, user.uid)) return;
 
                 const senderSnapshot = await get(ref(db, `users/${latestMessage.senderId}`));
                 const senderInfo = senderSnapshot.exists() ? senderSnapshot.val() : null;
@@ -234,7 +362,7 @@ function Chat() {
         return () => {
             unsubscribes.forEach((unsubscribe) => unsubscribe());
         };
-    }, [user?.uid, userChats]);
+    }, [user?.uid, userChats, notificationPrefs]);
 
     // Load user's chats
     useEffect(() => {
@@ -252,6 +380,7 @@ function Chat() {
             } else {
                 setUserChats([]);
             }
+            setUserChatsLoaded(true);
         });
         return () => unsubscribe();
     }, [user]);
@@ -260,16 +389,16 @@ function Chat() {
     useEffect(() => {
         const usersRef = ref(db, `users`);
         onValue(usersRef, (snapshot) => {
+            const usersData = [];
             if (snapshot.exists()) {
-                const usersData = [];
                 snapshot.forEach((childSnapshot) => {
                     const data = childSnapshot.val();
                     if (data.uid !== user?.uid) {
                         usersData.push(data);
                     }
                 });
-                setAllUsers(usersData);
             }
+            setAllUsers(usersData);
         }, { onlyOnce: true });
     }, [user]);
 
@@ -334,9 +463,9 @@ function Chat() {
                         messagePromises.push(promise);
                     });
 
-                    const resolvedMsgs = await Promise.all(messagePromises);
+                    await Promise.all(messagePromises);
 
-                    setMessages(resolvedMsgs);
+                    setMessages(msgs);
                 } else {
                     setMessages([]);
                     setIsChatReady(true);
@@ -472,6 +601,32 @@ function Chat() {
         }, 100);
     };
 
+    const getMentionMapFromText = (text) => {
+        const mentions = {};
+        const normalized = text || "";
+        const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        Object.values(selectedMentions).forEach((mention) => {
+            if (normalized.includes(`@${mention.label}`)) {
+                mentions[mention.uid] = true;
+            }
+        });
+
+        if (/(^|\s)@everyone\b/i.test(normalized)) {
+            mentions.everyone = true;
+        }
+
+        Object.keys(selectedChat?.members || {}).forEach((uid) => {
+            const profile = getMemberInfo(uid);
+            const label = getMentionLabel(profile);
+            if (label && new RegExp(`(^|\\s)@${escapeRegExp(label)}\\b`, "i").test(normalized)) {
+                mentions[uid] = true;
+            }
+        });
+
+        return mentions;
+    };
+
     const handleSendMessage = async (e) => {
         e.preventDefault();
         if (!selectedChat) return;
@@ -492,6 +647,8 @@ function Chat() {
         }
 
         if (!newMessage.trim() && !imageFile) return;
+        const messageText = newMessage.trim();
+        const mentions = getMentionMapFromText(messageText);
 
         const messagesRef = ref(db, `chats/${selectedChat.id}/messages`);
         const newMsgRef = push(messagesRef);
@@ -505,7 +662,7 @@ function Chat() {
                 imageUrl = await getDownloadURL(imageRef);
             } catch (err) {
                 console.error("Image upload failed: ", err);
-                alert("Failed to upload image. Please check your Firebase Storage rules.");
+                await notify("Failed to upload image. Please check your Firebase Storage rules.", { title: "Image Not Sent" });
                 return;
             }
         }
@@ -515,6 +672,10 @@ function Chat() {
             text: newMessage || "",
             timestamp: serverTimestamp()
         };
+
+        if (Object.keys(mentions).length > 0) {
+            msgData.mentions = mentions;
+        }
 
         if (imageUrl) {
             msgData.imageUrl = imageUrl;
@@ -531,6 +692,76 @@ function Chat() {
         setNewMessage("");
         setImageFile(null);
         setReplyingTo(null);
+        setShowEmojiPicker(false);
+        setSelectedMentions({});
+        setMentionQuery(null);
+        setMentionStart(null);
+    };
+
+    const handleSendGif = async (gif) => {
+        if (!selectedChat || !gif?.gifUrl) return;
+
+        const messagesRef = ref(db, `chats/${selectedChat.id}/messages`);
+        const newMsgRef = push(messagesRef);
+        const msgData = {
+            senderId: user.uid,
+            text: "",
+            timestamp: serverTimestamp(),
+            gifUrl: gif.gifUrl,
+            gifPreviewUrl: gif.previewUrl,
+            gifTitle: gif.title,
+            giphyUrl: gif.giphyUrl
+        };
+
+        if (replyingTo) {
+            msgData.replyToId = replyingTo.id;
+            msgData.replyToText = replyingTo.text || replyingTo.gifTitle || "GIF";
+            msgData.replyToSender = getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo);
+        }
+
+        await set(newMsgRef, msgData);
+
+        setShowGifPicker(false);
+        setGifQuery("");
+        setReplyingTo(null);
+        setImageFile(null);
+        setShowEmojiPicker(false);
+    };
+
+    const insertEmoji = (emoji) => {
+        const input = composerInputRef.current;
+        const start = input?.selectionStart ?? newMessage.length;
+        const end = input?.selectionEnd ?? newMessage.length;
+        const nextMessage = `${newMessage.slice(0, start)}${emoji}${newMessage.slice(end)}`;
+
+        setNewMessage(nextMessage);
+
+        requestAnimationFrame(() => {
+            if (!composerInputRef.current) return;
+            const nextCursor = start + emoji.length;
+            composerInputRef.current.focus();
+            composerInputRef.current.setSelectionRange(nextCursor, nextCursor);
+            composerInputRef.current.style.height = "auto";
+            composerInputRef.current.style.height = `${composerInputRef.current.scrollHeight}px`;
+        });
+    };
+
+    const handleToggleReaction = async (msg, emoji) => {
+        if (!selectedChat || !msg?.id || !user?.uid) return;
+
+        const reactionRef = ref(db, `chats/${selectedChat.id}/messages/${msg.id}/reactions/${user.uid}`);
+        if (msg.reactions?.[user.uid] === emoji) {
+            await remove(reactionRef);
+        } else {
+            await set(reactionRef, emoji);
+        }
+    };
+
+    const getReactionCounts = (reactions = {}) => {
+        return Object.values(reactions).reduce((counts, emoji) => {
+            counts[emoji] = (counts[emoji] || 0) + 1;
+            return counts;
+        }, {});
     };
 
     const handleReplyClick = (msg) => {
@@ -542,15 +773,20 @@ function Chat() {
         const el = document.getElementById(`msg-${msgId}`);
         if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            el.classList.add('highlight-message');
+            const bubble = el.querySelector('.message__bubble');
+            bubble?.classList.add('message__bubble--spotlight');
             setTimeout(() => {
-                el.classList.remove('highlight-message');
+                bubble?.classList.remove('message__bubble--spotlight');
             }, 2000);
         }
     };
 
     const handleDeleteMessage = async (msgId) => {
-        if (!window.confirm("Are you sure you want to unsend this message?")) return;
+        const ok = await confirm("Are you sure you want to unsend this message?", {
+            title: "Unsend Message",
+            confirmLabel: "Unsend"
+        });
+        if (!ok) return;
         await remove(ref(db, `chats/${selectedChat.id}/messages/${msgId}`));
     };
 
@@ -558,6 +794,8 @@ function Chat() {
         setEditingMessageId(msg.id);
         setReplyingTo(null);
         setImageFile(null);
+        setShowGifPicker(false);
+        setShowEmojiPicker(false);
         setNewMessage(msg.text || "");
         setTimeout(() => composerInputRef.current?.focus(), 0);
     };
@@ -625,15 +863,15 @@ function Chat() {
         if (!addFriendEmail.trim()) return;
         const targetUser = allUsers.find(u => u.email === addFriendEmail.trim());
         if (!targetUser) {
-            alert("User not found!");
+            await notify("User not found.", { title: "No Match" });
             return;
         }
         if (targetUser.uid === user.uid) {
-            alert("Cannot add yourself!");
+            await notify("You cannot add yourself as a friend.", { title: "Already You" });
             return;
         }
         if (friends[targetUser.uid]) {
-            alert("Already friends!");
+            await notify("This user is already in your friends list.", { title: "Already Friends" });
             return;
         }
         
@@ -643,11 +881,15 @@ function Chat() {
         };
         await update(ref(db), updates);
         setAddFriendEmail("");
-        alert("Friend added!");
+        await notify("Friend added.", { title: "New Friend" });
     };
 
     const handleDeleteFriend = async (friendUid, friendName) => {
-        if (!window.confirm(`Are you sure you want to delete ${friendName} from your friends list?`)) return;
+        const ok = await confirm(`Remove ${friendName} from your friends list?`, {
+            title: "Delete Friend",
+            confirmLabel: "Remove"
+        });
+        if (!ok) return;
         
         try {
             const updates = {
@@ -657,10 +899,10 @@ function Chat() {
             await update(ref(db), updates);
             
             // Also option to remove direct chat if preferred? No the request only says "delete friend". We'll just remove them from friends node.
-            alert("Friend removed.");
+            await notify("Friend removed.", { title: "Friends Updated" });
         } catch (error) {
             console.error("Error removing friend:", error);
-            alert("Failed to remove friend.");
+            await notify("Failed to remove friend.", { title: "Update Failed" });
         }
     };
 
@@ -785,11 +1027,16 @@ function Chat() {
         chatIconUploadRef.current?.click();
     };
 
-    const toggleChatMute = () => {
+    const cycleNotificationPreference = () => {
         if (!selectedChat) return;
 
-        const newMuted = { ...mutedChats, [selectedChat.id]: !mutedChats[selectedChat.id] };
+        const current = notificationPrefs[selectedChat.id] || (mutedChats[selectedChat.id] ? "muted" : "all");
+        const next = current === "all" ? "mentions" : current === "mentions" ? "muted" : "all";
+        const nextPrefs = { ...notificationPrefs, [selectedChat.id]: next };
+        const newMuted = { ...mutedChats, [selectedChat.id]: next === "muted" };
+        setNotificationPrefs(nextPrefs);
         setMutedChats(newMuted);
+        localStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(nextPrefs));
         localStorage.setItem(MUTED_CHATS_KEY, JSON.stringify(newMuted));
     };
 
@@ -868,12 +1115,16 @@ function Chat() {
     }, [showNewChatModal, friends, selectedUsers]);
 
     const handleComposerKeyDown = (e) => {
+        if (e.key === "Escape" && mentionQuery !== null) {
+            setMentionQuery(null);
+            setMentionStart(null);
+            return;
+        }
         if (e.key !== "Enter") return;
 
         // Use modifier + Enter for manual line break; Enter alone submits.
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
             return;
-            msgData.replyToSender = getChatDisplayName(replyingTo.senderId, replyingTo.senderInfo);
         }
 
         e.preventDefault();
@@ -881,14 +1132,68 @@ function Chat() {
     };
 
     const handleInputResize = (e) => {
-        setNewMessage(e.target.value);
+        const value = e.target.value;
+        setNewMessage(value);
         e.target.style.height = 'auto';
         e.target.style.height = `${e.target.scrollHeight}px`;
+        const cursor = e.target.selectionStart ?? value.length;
+        const beforeCursor = value.slice(0, cursor);
+        const match = beforeCursor.match(/(^|\s)@([A-Za-z0-9_.-]*)$/);
+        if (match) {
+            setMentionStart(cursor - match[2].length - 1);
+            setMentionQuery(match[2]);
+        } else {
+            setMentionStart(null);
+            setMentionQuery(null);
+        }
+    };
+
+    const handleSelectMention = (profile) => {
+        if (mentionStart === null) return;
+        const input = composerInputRef.current;
+        const cursor = input?.selectionStart ?? newMessage.length;
+        const label = getMentionLabel(profile);
+        const nextMessage = `${newMessage.slice(0, mentionStart)}@${label} ${newMessage.slice(cursor)}`;
+
+        setNewMessage(nextMessage);
+        setSelectedMentions((prev) => ({
+            ...prev,
+            [profile.uid]: { uid: profile.uid, label }
+        }));
+        setMentionQuery(null);
+        setMentionStart(null);
+
+        requestAnimationFrame(() => {
+            if (!composerInputRef.current) return;
+            const nextCursor = mentionStart + label.length + 2;
+            composerInputRef.current.focus();
+            composerInputRef.current.setSelectionRange(nextCursor, nextCursor);
+            composerInputRef.current.style.height = "auto";
+            composerInputRef.current.style.height = `${composerInputRef.current.scrollHeight}px`;
+        });
     };
 
     const handleLogout = async () => {
         await signOut(auth);
     };
+
+    const mediaItems = messages.filter((message) => message.imageUrl || message.gifUrl);
+    const linkItems = messages.flatMap((message) => {
+        const matches = (message.text || "").match(/https?:\/\/[^\s]+/g) || [];
+        return matches.map((rawUrl) => {
+            const url = rawUrl.replace(/[),.;!?]+$/, "");
+            try {
+                return {
+                    id: `${message.id}-${url}`,
+                    url,
+                    host: new URL(url).hostname,
+                    sender: getChatDisplayName(message.senderId, message.senderInfo)
+                };
+            } catch {
+                return null;
+            }
+        }).filter(Boolean);
+    });
 
     const handleChatIconUpload = async (e) => {
         if (!selectedChat || !e.target.files?.[0]) return;
@@ -905,15 +1210,30 @@ function Chat() {
             applyChatMetadataLocally(selectedChat.id, { iconUrl });
         } catch (error) {
             console.error("Failed to update chat icon", error);
-            alert("Failed to upload chat icon.");
+            await notify("Failed to upload chat icon.", { title: "Icon Not Updated" });
         } finally {
             setIsUpdatingChatIcon(false);
             e.target.value = "";
         }
     };
 
+    const handleLeaveChat = async () => {
+        if (!selectedChat) return;
+        const ok = await confirm("Leave this chat?", {
+            title: "Leave Chat",
+            confirmLabel: "Leave"
+        });
+        if (!ok) return;
+
+        await remove(ref(db, `user_chats/${user.uid}/${selectedChat.id}`));
+        await update(ref(db, `chats/${selectedChat.id}/metadata/members/${user.uid}`), null);
+        setSelectedChat(null);
+        setShowSettings(false);
+    };
+
     return (
         <div className="chat-layout">
+            {dialogNode}
             <nav className="main-nav">
 	                <div className="main-nav__top">
 	                    <button className={`nav-icon ${activeView === 'chats' ? 'active' : ''}`} onClick={() => setActiveView('chats')} title="Chats">
@@ -928,7 +1248,7 @@ function Chat() {
                         {currentUserProfile.photoURL ? (
                             <img src={currentUserProfile.photoURL} alt="Profile" />
                         ) : (
-                            <span>{currentUserProfile.displayName ? currentUserProfile.displayName[0].toUpperCase() : "?"}</span>
+                            <AbstractAvatar seed={user.uid || user.email} />
                         )}
                     </button>
                 </div>
@@ -1002,11 +1322,13 @@ function Chat() {
                                     </div>
                                 </div>
                             )}
-                            {filterMessagesByQuery(messages, searchQuery).map(msg => {
-                                const isMe = msg.senderId === user.uid;
-                                const isEditingTarget = editingMessageId === msg.id;
-                                const isDimmed = Boolean(editingMessageId) && !isEditingTarget;
-                                const readers = Object.entries(readReceipts || {})
+	                            {filterMessagesByQuery(messages, searchQuery).map(msg => {
+	                                const isMe = msg.senderId === user.uid;
+	                                const isEditingTarget = editingMessageId === msg.id;
+	                                const isDimmed = Boolean(editingMessageId) && !isEditingTarget;
+	                                const isMentioned = isMentionForUser(msg);
+	                                const reactionCounts = getReactionCounts(msg.reactions);
+	                                const readers = Object.entries(readReceipts || {})
                                     .filter(([uid, msgId]) => msgId === msg.id && uid !== user.uid)
                                     .map(([uid]) => allUsers.find(u => u.uid === uid) || { uid, displayName: 'User', photoURL: null });
 
@@ -1015,7 +1337,7 @@ function Chat() {
                                         key={msg.id}
                                         id={`msg-${msg.id}`}
                                         data-msg-id={msg.id}
-                                        className={`message-row ${isDimmed ? "message-row--dimmed" : ""} ${isEditingTarget ? "message-row--editing" : ""}`}
+	                                        className={`message-row ${isMentioned ? "message-row--mentioned" : ""} ${isDimmed ? "message-row--dimmed" : ""} ${isEditingTarget ? "message-row--editing" : ""}`}
                                         style={{ display: 'flex', flexDirection: 'column' }}
                                     >
                                         <div className={`message ${isMe ? 'message--me' : 'message--other'}`}>
@@ -1024,7 +1346,7 @@ function Chat() {
                                                     {msg.senderInfo?.photoURL ? (
                                                         <img src={msg.senderInfo.photoURL} alt="avatar" />
                                                     ) : (
-                                                        <span>{(msg.senderInfo?.displayName || '?')[0].toUpperCase()}</span>
+                                                        <AbstractAvatar seed={msg.senderId || msg.senderInfo?.email || msg.senderInfo?.displayName} />
                                                     )}
                                                 </div>
                                             )}
@@ -1043,7 +1365,7 @@ function Chat() {
                                                     </div>
                                                 )}
 
-                                                <div className="message__bubble">
+	                                                <div className="message__bubble">
                                                     {msg.imageUrl && (
                                                         <img 
                                                             src={msg.imageUrl} 
@@ -1053,13 +1375,46 @@ function Chat() {
                                                             style={{ cursor: 'pointer', maxWidth: '200px', maxHeight: '200px', objectFit: 'cover' }}
                                                         />
                                                     )}
-                                                    {msg.text && <p>{msg.text}</p>}
-                                                    {msg.isEdited && <small className="message__edited-tag">(edited)</small>}
-                                                    {isEditingTarget && <small className="message__edited-tag">Editing in composer...</small>}
-                                                </div>
-                                                {!editingMessageId && (
-                                                    <div className="message__actions">
-                                                        <button onClick={() => handleReplyClick(msg)}>Reply</button>
+                                                    {msg.gifUrl && (
+                                                        <a
+                                                            className="message__gif-link"
+                                                            href={msg.giphyUrl || msg.gifUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            title="Open on GIPHY"
+                                                        >
+                                                            <img
+                                                                src={msg.gifUrl}
+                                                                alt={msg.gifTitle || "GIPHY GIF"}
+                                                                className="message__image message__gif"
+                                                                style={{ cursor: 'pointer', maxWidth: '220px', maxHeight: '220px', objectFit: 'cover' }}
+                                                            />
+                                                            <span>GIPHY</span>
+                                                        </a>
+                                                    )}
+	                                                    {msg.text && <p>{msg.text}</p>}
+	                                                    {msg.isEdited && <small className="message__edited-tag">(edited)</small>}
+	                                                    {isEditingTarget && <small className="message__edited-tag">Editing in composer...</small>}
+	                                                </div>
+	                                                {Object.keys(reactionCounts).length > 0 && (
+	                                                    <div className="message__reaction-summary">
+	                                                        {Object.entries(reactionCounts).map(([emoji, count]) => (
+	                                                            <button
+	                                                                key={emoji}
+	                                                                type="button"
+	                                                                className={msg.reactions?.[user.uid] === emoji ? "active" : ""}
+	                                                                onClick={() => handleToggleReaction(msg, emoji)}
+	                                                                title={msg.reactions?.[user.uid] === emoji ? "Remove reaction" : "React"}
+	                                                            >
+	                                                                <span>{emoji}</span>
+	                                                                <small>{count}</small>
+	                                                            </button>
+	                                                        ))}
+	                                                    </div>
+	                                                )}
+	                                                {!editingMessageId && (
+	                                                    <div className="message__actions">
+	                                                        <button onClick={() => handleReplyClick(msg)}>Reply</button>
                                                         {pinnedMessageIdSet.has(msg.id) ? (
                                                             <button onClick={() => handleUnpinMessage(msg.id)}>Unpin</button>
                                                         ) : (
@@ -1071,6 +1426,24 @@ function Chat() {
                                                                 <button onClick={() => handleDeleteMessage(msg.id)}>Unsend</button>
                                                             </>
                                                         )}
+                                                        <div className="message__reaction-popover" aria-label="React to message">
+                                                            <button type="button" className="message__reaction-trigger" title="React">
+                                                                ☺
+                                                            </button>
+                                                            <div className="message__reaction-list">
+                                                                {REACTION_OPTIONS.map((emoji) => (
+                                                                    <button
+                                                                        key={emoji}
+                                                                        type="button"
+                                                                        className={msg.reactions?.[user.uid] === emoji ? "active" : ""}
+                                                                        onClick={() => handleToggleReaction(msg, emoji)}
+                                                                        title={msg.reactions?.[user.uid] === emoji ? "Remove reaction" : `React ${emoji}`}
+                                                                    >
+                                                                        {emoji}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -1079,7 +1452,13 @@ function Chat() {
                                         {readers.length > 0 && (
                                             <div className="message__read-receipts" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', display: 'flex', gap: '3px', marginTop: '2px', marginRight: isMe ? '10px' : '0', marginLeft: isMe ? '0' : '46px' }}>
                                                 {readers.map(r => (
-                                                    <img key={r.uid} src={r.photoURL || `https://ui-avatars.com/api/?name=${r.displayName}&size=14&background=random`} alt={r.displayName} style={{ width: '14px', height: '14px', borderRadius: '50%' }} title={`Read by ${getChatDisplayName(r.uid, r)}`} />
+                                                    r.photoURL ? (
+                                                        <img key={r.uid} src={r.photoURL} alt={r.displayName} style={{ width: '14px', height: '14px', borderRadius: '50%' }} title={`Read by ${getChatDisplayName(r.uid, r)}`} />
+                                                    ) : (
+                                                        <span key={r.uid} className="message__read-receipt-avatar" title={`Read by ${getChatDisplayName(r.uid, r)}`}>
+                                                            <AbstractAvatar seed={r.uid || r.email || r.displayName} />
+                                                        </span>
+                                                    )
                                                 ))}
                                             </div>
                                         )}
@@ -1111,10 +1490,108 @@ function Chat() {
                             </div>
                         )}
 
-                        <form className="chat-room__input-form" onSubmit={handleSendMessage}>
+	                        {showGifPicker && !editingMessageId && (
+	                            <div className="chat-room__gif-panel">
+                                <div className="chat-room__gif-header">
+                                    <div className="chat-room__gif-search">
+                                        <GalleryIcon name="gif" size={18} />
+                                        <input
+                                            type="search"
+                                            placeholder="Search GIPHY..."
+                                            value={gifQuery}
+                                            onChange={(e) => setGifQuery(e.target.value)}
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <button type="button" onClick={() => setShowGifPicker(false)} title="Close GIF search">
+                                        <GalleryIcon name="close" size={17} />
+                                    </button>
+                                </div>
+                                <div className="chat-room__gif-grid">
+                                    {gifLoading && <div className="chat-room__gif-status">Loading GIFs...</div>}
+                                    {gifError && <div className="chat-room__gif-status chat-room__gif-status--error">{gifError}</div>}
+                                    {!gifLoading && !gifError && gifResults.map((gif) => (
+                                        <button
+                                            key={gif.id}
+                                            type="button"
+                                            className="chat-room__gif-result"
+                                            onClick={() => handleSendGif(gif)}
+                                            title={gif.title}
+                                        >
+                                            <img src={gif.previewUrl} alt={gif.title} loading="lazy" />
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="chat-room__gif-attribution">Powered by GIPHY</div>
+	                            </div>
+	                        )}
+
+	                        {showEmojiPicker && (
+	                            <div className="chat-room__emoji-panel">
+	                                <div className="chat-room__emoji-header">
+	                                    <span>Choose an emoji</span>
+	                                    <button type="button" onClick={() => setShowEmojiPicker(false)} title="Close emoji picker">
+	                                        <GalleryIcon name="close" size={17} />
+	                                    </button>
+	                                </div>
+	                                <div className="chat-room__emoji-grid">
+	                                    {EMOJI_PICKER_OPTIONS.map((emoji) => (
+	                                        <button
+	                                            key={emoji}
+	                                            type="button"
+	                                            onClick={() => insertEmoji(emoji)}
+	                                            title={`Insert ${emoji}`}
+	                                        >
+	                                            {emoji}
+	                                        </button>
+	                                    ))}
+	                                </div>
+	                            </div>
+	                        )}
+
+	                        {mentionQuery !== null && getMentionSuggestions().length > 0 && (
+	                            <div className="chat-room__mention-menu">
+	                                {getMentionSuggestions().map((profile) => (
+	                                    <button key={profile.uid} type="button" onClick={() => handleSelectMention(profile)}>
+	                                        <span className="gallery-round-frame gallery-round-frame--mention">
+	                                            {profile.isEveryone ? <GalleryIcon name="friends" size={15} /> : <AbstractAvatar seed={profile.uid || profile.email || getMentionLabel(profile)} />}
+	                                        </span>
+	                                        <span>{getUserDisplayName(profile)}</span>
+	                                        <small>@{getMentionLabel(profile)}</small>
+	                                    </button>
+	                                ))}
+	                            </div>
+	                        )}
+
+	                        <form className="chat-room__input-form" onSubmit={handleSendMessage}>
+	                            <button
+	                                type="button"
+	                                className={`chat-room__emoji-btn ${showEmojiPicker ? "active" : ""}`}
+	                                title="Insert emoji"
+	                                onClick={() => {
+	                                    setShowEmojiPicker((open) => !open);
+	                                    setShowGifPicker(false);
+	                                }}
+	                            >
+	                                <span>☺</span>
+	                            </button>
+	                            {!editingMessageId && (
+	                                <button
+                                    type="button"
+                                    className={`chat-room__tool-btn ${showGifPicker ? "active" : ""}`}
+                                    title="Search GIFs"
+	                                    onClick={() => {
+	                                        setShowGifPicker((open) => !open);
+	                                        setShowEmojiPicker(false);
+	                                        setImageFile(null);
+	                                    }}
+                                >
+                                    <GalleryIcon name="gif" size={23} />
+                                </button>
+                            )}
                             {!editingMessageId && (
-	                                <label className="chat-room__upload-btn" title="Send image">
-	                                    <GalleryIcon name="attach" size={24} />
+                                <label className="chat-room__upload-btn" title="Send image">
+                                    <GalleryIcon name="attach" size={24} />
                                     <input 
                                         type="file" 
                                         name="imageFile" 
@@ -1156,12 +1633,12 @@ function Chat() {
                                 {renderChatIcon(selectedChat, 80, "chat-icon chat-icon--settings")}
 	                                <h3 style={{ margin: '0 0 10px', wordBreak: 'break-all', color: '#2f241d' }}>{selectedChat.name}</h3>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
-	                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#2f241d' }} onClick={toggleChatMute}>
-	                                        <div className="gallery-round-frame gallery-round-frame--control" style={{ width: 36, height: 36, marginBottom: 5 }}>
-	                                            <GalleryIcon name={mutedChats[selectedChat.id] ? "mutedBell" : "bell"} size={18} />
-                                        </div>
-                                        <small>{mutedChats[selectedChat.id] ? 'Unmute' : 'Mute'}</small>
-                                    </button>
+	                                    <button className="chat-settings-panel__notification-btn" onClick={cycleNotificationPreference}>
+	                                        <div className="gallery-round-frame gallery-round-frame--control">
+	                                            <GalleryIcon name={(notificationPrefs[selectedChat.id] || (mutedChats[selectedChat.id] ? "muted" : "all")) === "muted" ? "mutedBell" : "bell"} size={18} />
+	                                        </div>
+                                        <small>{(notificationPrefs[selectedChat.id] || (mutedChats[selectedChat.id] ? "muted" : "all")) === "all" ? "All" : (notificationPrefs[selectedChat.id] || (mutedChats[selectedChat.id] ? "muted" : "all")) === "mentions" ? "Mentions" : "Muted"}</small>
+	                                    </button>
                                 </div>
                             </div>
 
@@ -1213,7 +1690,7 @@ function Chat() {
                                                             {memberInfo.photoURL ? (
                                                                 <img src={memberInfo.photoURL} alt={baseName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                             ) : (
-                                                                <span>{baseName[0]?.toUpperCase() || "?"}</span>
+                                                                <AbstractAvatar seed={uid || memberInfo.email || baseName} />
                                                             )}
                                                         </div>
                                                         <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1265,27 +1742,70 @@ function Chat() {
                                 </details>
 
                                 <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-	                                    <button style={{ color: '#7a3324', width: '100%', padding: '10px', background: '#fff2ea', border: '1px solid currentColor', borderRadius: '4px', cursor: 'pointer', textAlign: 'left' }} onClick={() => {
-                                        if(window.confirm("Leave this chat?")){
-                                            remove(ref(db, `user_chats/${user.uid}/${selectedChat.id}`));
-                                            update(ref(db, `chats/${selectedChat.id}/metadata/members/${user.uid}`), null);
-                                            setSelectedChat(null);
-                                            setShowSettings(false);
-                                        }
-	                                    }}><GalleryIcon name="leave" size={17} /> Leave Chat</button>
+	                                    <button style={{ color: '#7a3324', width: '100%', padding: '10px', background: '#fff2ea', border: '1px solid currentColor', borderRadius: '4px', cursor: 'pointer', textAlign: 'left' }} onClick={handleLeaveChat}><GalleryIcon name="leave" size={17} /> Leave Chat</button>
                                 </div>
                             </div>
                         </>
                     ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-	                            <div style={{ padding: '15px', borderBottom: '1px solid #d8c7ad', display: 'flex', alignItems: 'center', gap: '10px' }}>
-	                                <button onClick={() => setSettingsView('main')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} title="Back"><GalleryIcon name="chevronLeft" size={22} /></button>
-                                <h3 style={{ margin: 0 }}>Media</h3>
+                        <div className="chat-media-panel">
+	                            <div className="chat-media-panel__header">
+	                                <button onClick={() => setSettingsView('main')} title="Back"><GalleryIcon name="chevronLeft" size={22} /></button>
+                                <div>
+                                    <h3>Media, Files & Links</h3>
+                                    <span>{mediaItems.length} media · {linkItems.length} links</span>
+                                </div>
                             </div>
-                            <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '5px' }}>
-                                {messages.filter(m => m.imageUrl).map(m => (
-                                    <img key={m.id} src={m.imageUrl} alt="media" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' }} onClick={() => setFullscreenImage(m.imageUrl)} />
-                                ))}
+                            <div className="chat-media-panel__body">
+                                <section className="chat-media-panel__section">
+                                    <div className="chat-media-panel__section-title">
+                                        <span>Media</span>
+                                        <small>{mediaItems.length}</small>
+                                    </div>
+                                    {mediaItems.length > 0 ? (
+                                        <div className="chat-media-panel__grid">
+                                            {mediaItems.map((m) => (
+                                                <button
+                                                    key={m.id}
+                                                    type="button"
+                                                    className="chat-media-panel__tile"
+                                                    onClick={() => m.imageUrl ? setFullscreenImage(m.imageUrl) : window.open(m.giphyUrl || m.gifUrl, "_blank", "noopener,noreferrer")}
+                                                >
+                                                    <img src={m.imageUrl || m.gifUrl} alt={m.gifTitle || "media"} />
+                                                    {m.gifUrl && <span>GIF</span>}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="chat-media-panel__empty">No shared media yet.</div>
+                                    )}
+                                </section>
+
+                                <section className="chat-media-panel__section">
+                                    <div className="chat-media-panel__section-title">
+                                        <span>Links</span>
+                                        <small>{linkItems.length}</small>
+                                    </div>
+                                    {linkItems.length > 0 ? (
+                                        <div className="chat-media-panel__links">
+                                            {linkItems.map((link) => (
+                                                <a key={link.id} href={link.url} target="_blank" rel="noreferrer">
+                                                    <span>{link.host}</span>
+                                                    <small>{link.sender}</small>
+                                                </a>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="chat-media-panel__empty">No links shared yet.</div>
+                                    )}
+                                </section>
+
+                                <section className="chat-media-panel__section">
+                                    <div className="chat-media-panel__section-title">
+                                        <span>Files</span>
+                                        <small>0</small>
+                                    </div>
+                                    <div className="chat-media-panel__empty">No shared files yet.</div>
+                                </section>
                             </div>
                         </div>
                     )}
@@ -1431,7 +1951,11 @@ function Chat() {
                                             <div key={friend.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid #f1f3f4', borderRadius: '8px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                     <div className="gallery-round-frame gallery-round-frame--friend" style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#efe0c8', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7a3324', fontWeight: 600 }}>
-                                                        {friend.photoURL ? <img src={friend.photoURL} alt={friend.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (friend.displayName || friend.email)[0].toUpperCase()}
+                                                        {friend.photoURL ? (
+                                                            <img src={friend.photoURL} alt={friend.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        ) : (
+                                                            <AbstractAvatar seed={friend.uid || friend.email || friend.displayName} />
+                                                        )}
                                                     </div>
                                                     <div>
 	                                                        <div style={{ fontWeight: 500, color: '#2f241d' }}>{friend.displayName || friend.email}</div>

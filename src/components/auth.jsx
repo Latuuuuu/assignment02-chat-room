@@ -9,6 +9,7 @@ import { useState } from "react";
 import { auth } from "../config.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNavigate } from "react-router-dom";
+import { AbstractAvatar } from "./AbstractAvatar.jsx";
 import '../styles/auth.scss';
 
 const GoogleIcon = () => (
@@ -45,9 +46,12 @@ export const Auth = () => {
         if (!email || !password) { setError('Please fill in all fields.'); return; }
         setLoading(true); setError('');
         try {
-            action === 'signup'
-                ? await createUserWithEmailAndPassword(auth, email, password)
-                : await signInWithEmailAndPassword(auth, email, password);
+            if (action === 'signup') {
+                await createUserWithEmailAndPassword(auth, email, password);
+                navigate('/profile', { replace: true, state: { fromSignup: true } });
+            } else {
+                await signInWithEmailAndPassword(auth, email, password);
+            }
             clear();
         } catch (e) { setError(errorMap[e.code] || 'An error occurred.'); }
         setLoading(false);
@@ -80,7 +84,7 @@ export const Auth = () => {
                         <div className="auth__avatar">
                             {user.photoURL
                                 ? <img src={user.photoURL} alt="avatar" />
-                                : <span>{(user.displayName || user.email || '?')[0].toUpperCase()}</span>
+                                : <AbstractAvatar seed={user.uid || user.email} />
                             }
                         </div>
                         <div className="auth__profile-name">{user.displayName || 'User'}</div>

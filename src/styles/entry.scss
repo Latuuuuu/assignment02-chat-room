@@ -24,8 +24,8 @@
 
 .entry-gallery__intro {
   position: absolute;
-  left: clamp(20px, 4vw, 56px);
-  top: clamp(18px, 4vh, 42px);
+  left: 50%;
+  top: 50%;
   z-index: 4;
   width: min(390px, calc(100vw - 40px));
   padding: 22px 24px;
@@ -34,6 +34,7 @@
   box-shadow: 0 22px 56px rgba(47, 36, 29, 0.13);
   backdrop-filter: blur(8px);
   animation: entryIntroIn 700ms ease both;
+  transform: translate(-50%, -50%);
 }
 
 .entry-gallery__kicker {
@@ -92,7 +93,11 @@
 
 .entry-gallery__wall {
   position: absolute;
-  inset: 0;
+  left: 2%;
+  right: 2%;
+  top: 8%;
+  height: 80vh;
+  z-index: 1;
   perspective: 1200px;
 }
 
@@ -104,13 +109,15 @@
   position: absolute;
   left: var(--x);
   top: var(--y);
-  width: clamp(138px, 17vw, 240px);
+  width: clamp(104px, 10.8vw, 176px);
   transform: translate(-50%, -50%) rotateX(var(--rx)) rotateY(var(--ry));
   transform-style: preserve-3d;
   animation: paintingHang 900ms cubic-bezier(0.2, 0.75, 0.2, 1) both, paintingBreathe 6s ease-in-out infinite;
   animation-delay: var(--delay), calc(var(--delay) + 900ms);
   transition: transform 140ms ease;
-  cursor: crosshair;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
 .entry-painting::before {
@@ -136,6 +143,12 @@
 
 .entry-painting:hover {
   z-index: 6;
+}
+
+.entry-painting--dragging {
+  z-index: 8;
+  cursor: grabbing;
+  animation-play-state: paused;
 }
 
 .entry-painting:hover::after {
@@ -198,7 +211,8 @@
 .scene__sun,
 .scene__arch,
 .scene__figure,
-.scene__horizon {
+.scene__horizon,
+.scene__accent {
   position: absolute;
   display: block;
 }
@@ -256,40 +270,179 @@
 .scene__arch--a { left: 8%; }
 .scene__arch--b { right: 8%; }
 
-.entry-painting__scene--portrait {
-  background:
-    radial-gradient(ellipse at 50% 30%, #d7b486 0 16%, transparent 17%),
-    linear-gradient(180deg, #6f7a5c 0 44%, #2f3f34 45% 100%);
+.scene__accent {
+  border-radius: 999px;
+  background: rgba(255, 250, 241, 0.55);
 }
 
-.entry-painting__scene--portrait .scene__figure--a,
-.entry-painting__scene--portrait .scene__figure--c,
-.entry-painting__scene--portrait .scene__arch {
+.entry-painting__scene--mona {
+  background:
+    radial-gradient(ellipse at 50% 31%, #d3a97a 0 13%, transparent 14%),
+    radial-gradient(ellipse at 50% 55%, #263a2c 0 20%, transparent 21%),
+    linear-gradient(160deg, #6f7a5c 0 42%, #22372d 43% 100%);
+}
+
+.entry-painting__scene--mona .scene__figure--a,
+.entry-painting__scene--mona .scene__figure--c,
+.entry-painting__scene--mona .scene__arch {
   display: none;
 }
 
-.entry-painting__scene--portrait .scene__figure--b {
+.entry-painting__scene--mona .scene__figure--b {
   left: 31%;
   width: 38%;
   height: 50%;
   background: #263a2c;
 }
 
-.entry-painting__scene--garden {
+.entry-painting__scene--mona .scene__accent--a {
+  left: 18%;
+  top: 18%;
+  width: 18%;
+  height: 42%;
+  background: linear-gradient(#87926d, transparent);
+}
+
+.entry-painting__scene--mona .scene__accent--b {
+  right: 16%;
+  top: 22%;
+  width: 18%;
+  height: 38%;
+  background: linear-gradient(#71835f, transparent);
+}
+
+.entry-painting__scene--primavera {
   background:
     radial-gradient(circle at 20% 20%, #d9b083 0 5%, transparent 6%),
+    radial-gradient(circle at 42% 16%, #f0cf92 0 4%, transparent 5%),
     radial-gradient(circle at 80% 24%, #d9b083 0 5%, transparent 6%),
     linear-gradient(180deg, #536d4b 0%, #233b2f 100%);
 }
 
+.entry-painting__scene--primavera .scene__figure {
+  width: 15%;
+  height: 38%;
+  background: #efe0c8;
+}
+
+.entry-painting__scene--primavera .scene__accent--a,
+.entry-painting__scene--primavera .scene__accent--b,
+.entry-painting__scene--primavera .scene__accent--c {
+  width: 16px;
+  height: 16px;
+  background: #d78d78;
+}
+
+.entry-painting__scene--primavera .scene__accent--a { left: 14%; top: 18%; }
+.entry-painting__scene--primavera .scene__accent--b { left: 58%; top: 22%; }
+.entry-painting__scene--primavera .scene__accent--c { right: 12%; top: 42%; }
+
 .entry-painting__scene--venus {
   background:
-    radial-gradient(ellipse at 50% 70%, #f0d5aa 0 15%, transparent 16%),
+    radial-gradient(ellipse at 50% 75%, #f0d5aa 0 18%, transparent 19%),
+    radial-gradient(ellipse at 50% 55%, #ffe2b8 0 11%, transparent 12%),
     linear-gradient(180deg, #a7b7b0 0 52%, #6f8f8c 53% 100%);
 }
 
-.entry-painting__scene--arches {
+.entry-painting__scene--venus .scene__figure--a,
+.entry-painting__scene--venus .scene__figure--c,
+.entry-painting__scene--venus .scene__arch {
+  display: none;
+}
+
+.entry-painting__scene--venus .scene__figure--b {
+  left: 42%;
+  width: 16%;
+  height: 42%;
+  background: #e8b58a;
+}
+
+.entry-painting__scene--venus .scene__accent--a {
+  left: 20%;
+  bottom: 20%;
+  width: 60%;
+  height: 20%;
+  border: 8px solid #f3c98d;
+  border-top: none;
+  background: transparent;
+  border-radius: 0 0 999px 999px;
+}
+
+.entry-painting__scene--annunciation {
+  background:
+    linear-gradient(90deg, rgba(255,250,241,0.55) 0 9%, transparent 9% 34%, rgba(255,250,241,0.45) 34% 42%, transparent 42% 66%, rgba(255,250,241,0.55) 66% 74%, transparent 74%),
+    linear-gradient(180deg, #b9afa0 0%, #8c8174 100%);
+}
+
+.entry-painting__scene--annunciation .scene__figure--a {
+  left: 18%;
+  width: 20%;
+  background: #7a3324;
+}
+
+.entry-painting__scene--annunciation .scene__figure--c {
+  left: 62%;
+  width: 20%;
+  background: #efe0c8;
+}
+
+.entry-painting__scene--annunciation .scene__accent--a {
+  left: 43%;
+  top: 18%;
+  width: 14%;
+  height: 12%;
+  background: #f3d89f;
+}
+
+.entry-painting__scene--madonna {
+  background:
+    radial-gradient(circle at 50% 26%, #f2d1a5 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 58%, #335a7a 0 25%, transparent 26%),
+    linear-gradient(180deg, #9b6c55 0%, #51382f 100%);
+}
+
+.entry-painting__scene--madonna .scene__figure--a,
+.entry-painting__scene--madonna .scene__figure--c,
+.entry-painting__scene--madonna .scene__arch {
+  display: none;
+}
+
+.entry-painting__scene--madonna .scene__figure--b {
+  left: 33%;
+  width: 34%;
+  height: 48%;
+  background: #284c70;
+}
+
+.entry-painting__scene--madonna .scene__accent--a {
+  left: 42%;
+  top: 48%;
+  width: 16%;
+  height: 16%;
+  background: #d9b083;
+}
+
+.entry-painting__scene--athens {
   background: linear-gradient(180deg, #b9afa0 0%, #8c8174 100%);
+}
+
+.entry-painting__scene--athens .scene__arch {
+  display: block;
+  width: 34%;
+}
+
+.entry-painting__scene--athens .scene__figure {
+  width: 10%;
+  height: 24%;
+  background: #5a3a27;
+}
+
+.entry-painting__scene--athens .scene__accent--a {
+  left: 23%;
+  bottom: 48%;
+  width: 54%;
+  height: 3px;
+  background: #fffaf1;
 }
 
 .entry-painting__scene--supper {
@@ -303,11 +456,154 @@
   height: 30%;
 }
 
-.entry-painting__scene--sky {
+.entry-painting__scene--supper .scene__accent--a {
+  left: 12%;
+  right: 12%;
+  bottom: 25%;
+  height: 10%;
+  background: #e2c08a;
+  border-radius: 4px;
+}
+
+.entry-painting__scene--sistine {
   background:
     radial-gradient(circle at 34% 32%, #f1d6b2 0 14%, transparent 15%),
     radial-gradient(circle at 70% 48%, #d3a780 0 12%, transparent 13%),
     linear-gradient(180deg, #b7bfbd 0%, #e9d5bd 100%);
+}
+
+.entry-painting__scene--sistine .scene__figure,
+.entry-painting__scene--sistine .scene__arch {
+  display: none;
+}
+
+.entry-painting__scene--sistine .scene__accent--a,
+.entry-painting__scene--sistine .scene__accent--b {
+  top: 42%;
+  width: 38%;
+  height: 8px;
+  background: #9b6c55;
+}
+
+.entry-painting__scene--sistine .scene__accent--a {
+  left: 12%;
+  transform: rotate(-20deg);
+}
+
+.entry-painting__scene--sistine .scene__accent--b {
+  right: 10%;
+  transform: rotate(18deg);
+}
+
+.entry-painting__scene--titian {
+  background:
+    radial-gradient(circle at 52% 30%, #d9a46f 0 12%, transparent 13%),
+    radial-gradient(ellipse at 51% 58%, #8f2f23 0 26%, transparent 27%),
+    linear-gradient(180deg, #2f3b34 0%, #201915 100%);
+}
+
+.entry-painting__scene--titian .scene__figure--a,
+.entry-painting__scene--titian .scene__figure--c,
+.entry-painting__scene--titian .scene__arch {
+  display: none;
+}
+
+.entry-painting__scene--titian .scene__figure--b {
+  left: 35%;
+  width: 30%;
+  height: 50%;
+  background: #8f2f23;
+}
+
+.entry-painting__scene--garden {
+  background:
+    radial-gradient(circle at 24% 28%, #dfbd71 0 7%, transparent 8%),
+    radial-gradient(circle at 66% 22%, #c55c52 0 6%, transparent 7%),
+    linear-gradient(180deg, #78905e 0%, #284431 100%);
+}
+
+.entry-painting__scene--garden .scene__figure {
+  display: none;
+}
+
+.entry-painting__scene--garden .scene__accent--a,
+.entry-painting__scene--garden .scene__accent--b,
+.entry-painting__scene--garden .scene__accent--c {
+  width: 22%;
+  height: 44%;
+  bottom: 12%;
+  background: linear-gradient(#91a96d, #2b4a31);
+  border-radius: 999px 999px 0 0;
+}
+
+.entry-painting__scene--garden .scene__accent--a { left: 12%; }
+.entry-painting__scene--garden .scene__accent--b { left: 39%; height: 56%; }
+.entry-painting__scene--garden .scene__accent--c { right: 12%; }
+
+.entry-painting__scene--urbino {
+  background:
+    linear-gradient(90deg, transparent 0 20%, rgba(255,250,241,0.44) 20% 23%, transparent 23% 47%, rgba(255,250,241,0.44) 47% 50%, transparent 50% 74%, rgba(255,250,241,0.44) 74% 77%, transparent 77%),
+    linear-gradient(180deg, #9f927e 0%, #65594a 100%);
+}
+
+.entry-painting__scene--urbino .scene__figure {
+  display: none;
+}
+
+.entry-painting__scene--urbino .scene__arch--a {
+  left: 26%;
+  width: 48%;
+  height: 70%;
+}
+
+.entry-painting__scene--urbino .scene__arch--b {
+  display: none;
+}
+
+.entry-painting__scene--urbino .scene__accent--a {
+  left: 42%;
+  top: 20%;
+  width: 16%;
+  height: 52%;
+  background: rgba(47, 36, 29, 0.22);
+}
+
+.entry-painting__scene--celestial {
+  background:
+    radial-gradient(circle at 24% 34%, #f0d5aa 0 13%, transparent 14%),
+    radial-gradient(circle at 78% 38%, #c99371 0 10%, transparent 11%),
+    linear-gradient(180deg, #77848a 0%, #dfc4a5 100%);
+}
+
+.entry-painting__scene--celestial .scene__figure,
+.entry-painting__scene--celestial .scene__arch {
+  display: none;
+}
+
+.entry-painting__scene--celestial .scene__accent--a {
+  left: 12%;
+  top: 50%;
+  width: 36%;
+  height: 7px;
+  background: #7a3324;
+  transform: rotate(16deg);
+}
+
+.entry-painting__scene--celestial .scene__accent--b {
+  right: 8%;
+  top: 46%;
+  width: 34%;
+  height: 7px;
+  background: #7a3324;
+  transform: rotate(-18deg);
+}
+
+.entry-painting__scene--celestial .scene__accent--c {
+  left: 48%;
+  top: 43%;
+  width: 6%;
+  height: 6%;
+  background: #fffaf1;
 }
 
 .entry-painting--shell .entry-painting__frame { border-color: #8f5f47; }
@@ -315,15 +611,16 @@
 .entry-painting--stone .entry-painting__frame { border-color: #695f55; }
 .entry-painting--umber .entry-painting__frame { border-color: #5a3a27; }
 .entry-painting--fresco .entry-painting__frame { border-color: #7f6f63; }
+.entry-painting--olive .entry-painting__frame { border-color: #566247; }
 
 @keyframes entryIntroIn {
   from {
     opacity: 0;
-    transform: translateY(-12px);
+    transform: translate(-50%, calc(-50% - 12px));
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate(-50%, -50%);
   }
 }
 
@@ -351,18 +648,21 @@
   }
 
   .entry-gallery__intro {
-    position: relative;
-    left: auto;
-    top: auto;
-    margin: 16px auto 12px;
+    position: absolute;
+    left: 50%;
+    top: 45%;
+    margin: 0;
+    width: min(340px, calc(100vw - 28px));
   }
 
   .entry-gallery__wall {
-    position: relative;
-    min-height: 860px;
+    position: absolute;
+    inset: 4% 2% auto;
+    height: 88vh;
+    min-height: 760px;
   }
 
   .entry-painting {
-    width: 145px;
+    width: 118px;
   }
 }

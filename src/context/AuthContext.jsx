@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../config";
-import { ref, get, set, serverTimestamp } from "firebase/database";
+import { ref, get, set, update, serverTimestamp } from "firebase/database";
 
 const AuthContext = createContext();
 
@@ -25,7 +25,17 @@ export const AuthProvider = ({ children }) => {
                         lastLogin: serverTimestamp()
                     });
                 } else {
-                    // Update lastLogin perhaps, but it's fine
+                    const data = snapshot.val();
+                    const updates = {
+                        lastLogin: serverTimestamp()
+                    };
+
+                    if (data.email !== currentUser.email) {
+                        updates.email = currentUser.email;
+                        updates.pendingEmail = null;
+                    }
+
+                    await update(userRef, updates);
                 }
                 setUser(currentUser);
             } else {

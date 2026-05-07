@@ -8,6 +8,7 @@ export const getChatAvatarFallback = (chat) => {
 };
 
 export const getMessagePreview = (message) => {
+    if (message?.gifUrl) return "Sent a GIF";
     return message?.text || "Sent an image";
 };
 
@@ -20,6 +21,7 @@ export const filterMessagesByQuery = (messages, query) => {
     return messages.filter((msg) => {
         const text = (msg.text || "").toLowerCase();
         const replyText = (msg.replyToText || "").toLowerCase();
-        return text.includes(normalized) || replyText.includes(normalized);
+        const gifTitle = (msg.gifTitle || "").toLowerCase();
+        return text.includes(normalized) || replyText.includes(normalized) || gifTitle.includes(normalized);
     });
 };
